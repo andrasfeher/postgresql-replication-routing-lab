@@ -61,7 +61,7 @@ psql --version
 ## Quick start
 
 ```bash
-git clone <your-repository-url>
+git clone https://github.com/andrasfeher/postgresql-replication-routing-lab.git
 cd postgres-cluster
 
 make secrets
