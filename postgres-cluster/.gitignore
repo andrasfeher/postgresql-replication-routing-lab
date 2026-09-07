@@ -1,0 +1,20 @@
+# Local secrets
+secrets/*.txt
+!secrets/*.example
+
+# Environment / editor files
+.env
+.env.*
+!.env.example
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS metadata
+.DS_Store
+Thumbs.db
+
+# Local output
+*.log
+.tmp/

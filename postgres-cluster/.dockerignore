@@ -1,0 +1,8 @@
+.git
+.github
+.vscode
+.idea
+secrets/*.txt
+*.log
+README.md
+docs

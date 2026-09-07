@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install ShellCheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Create placeholder secrets for Compose validation
+        run: |
+          printf '%s\n' 'ci-placeholder' > secrets/postgres_password.txt
+          printf '%s\n' 'ci-placeholder' > secrets/replication_password.txt
+
+      - name: ShellCheck
+        run: shellcheck scripts/*.sh pgbouncer/entrypoint.sh
+
+      - name: Validate Docker Compose
+        run: docker compose config --quiet
+
+      - name: Validate HAProxy configuration
+        run: |
+          docker run --rm \
+            -v "$PWD/haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro" \
+            haproxy:3.2-alpine \
+            haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg
+
+      - name: Build PostgreSQL image
+        run: docker compose build pg-primary
