@@ -62,7 +62,7 @@ psql --version
 
 ```bash
 git clone https://github.com/andrasfeher/postgresql-replication-routing-lab.git
-cd postgres-cluster
+cd postgresql-replication-routing-lab
 
 make secrets
 make up
