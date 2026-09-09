@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PG_VERSION="${PG_VERSION:-18}"
-CLUSTER="primary"
+CLUSTER="node1"
 PGDATA="/var/lib/postgresql/${PG_VERSION}/${CLUSTER}"
 CONFIG="/etc/postgresql/${PG_VERSION}/${CLUSTER}"
 POSTGRES_PASSWORD_FILE="/run/secrets/postgres_password"
@@ -17,7 +17,7 @@ require_file "$POSTGRES_PASSWORD_FILE"
 require_file "$REPLICATION_PASSWORD_FILE"
 
 if [[ ! -d "$CONFIG" ]]; then
-    echo "[primary] Creating Debian PostgreSQL cluster ${PG_VERSION}/${CLUSTER}"
+    echo "[node1] Creating Debian PostgreSQL cluster ${PG_VERSION}/${CLUSTER}"
 
     pg_createcluster \
         "$PG_VERSION" \
@@ -42,7 +42,7 @@ host replication replicator samenet scram-sha-256
 host all all samenet scram-sha-256
 HBA
 
-    echo "[primary] Starting PostgreSQL temporarily for role initialization"
+    echo "[node1] Starting PostgreSQL temporarily for role initialization"
     pg_ctlcluster "$PG_VERSION" "$CLUSTER" start
 
     POSTGRES_PASSWORD="$(<"$POSTGRES_PASSWORD_FILE")"
@@ -69,12 +69,12 @@ SQL
     unset POSTGRES_PASSWORD REPLICATION_PASSWORD
     pg_ctlcluster "$PG_VERSION" "$CLUSTER" stop
 elif [[ ! -f "${PGDATA}/PG_VERSION" ]]; then
-    echo "ERROR: PostgreSQL config exists but primary data directory is missing." >&2
+    echo "ERROR: PostgreSQL config exists but node1 data directory is missing." >&2
     echo "       For this lab, reset all volumes together with: docker compose down -v" >&2
     exit 1
 fi
 
-echo "[primary] Starting PostgreSQL"
+echo "[node1] Starting PostgreSQL"
 exec runuser -u postgres -- \
     "/usr/lib/postgresql/${PG_VERSION}/bin/postgres" \
     -D "$PGDATA" \

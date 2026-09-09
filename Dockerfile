@@ -27,9 +27,11 @@ RUN apt-get update \
        "postgresql-client-${PG_MAJOR}" \
     && rm -rf /var/lib/apt/lists/*
 
-COPY scripts/primary-entrypoint.sh /usr/local/bin/primary-entrypoint.sh
-COPY scripts/secondary-entrypoint.sh /usr/local/bin/secondary-entrypoint.sh
+COPY scripts/node1-entrypoint.sh /usr/local/bin/node1-entrypoint.sh
+COPY scripts/node2-entrypoint.sh /usr/local/bin/node2-entrypoint.sh
+COPY scripts/node3-entrypoint.sh /usr/local/bin/node3-entrypoint.sh
 
 RUN chmod 0755 \
-    /usr/local/bin/primary-entrypoint.sh \
-    /usr/local/bin/secondary-entrypoint.sh
+    /usr/local/bin/node1-entrypoint.sh \
+    /usr/local/bin/node2-entrypoint.sh \
+    /usr/local/bin/node3-entrypoint.sh

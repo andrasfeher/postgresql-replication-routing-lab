@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PG_VERSION="${PG_VERSION:-18}"
-CLUSTER="secondary"
+CLUSTER="node3"
 
 PGDATA="/var/lib/postgresql/${PG_VERSION}/${CLUSTER}"
 CONFIG="/etc/postgresql/${PG_VERSION}/${CLUSTER}"
@@ -25,7 +25,7 @@ NEEDS_BASEBACKUP=false
 # initialized from the primary with pg_basebackup.
 #
 if [[ ! -d "$CONFIG" ]]; then
-    echo "[secondary] Creating Debian PostgreSQL cluster configuration"
+    echo "[node3] Creating Debian PostgreSQL cluster configuration"
 
     pg_createcluster \
         "$PG_VERSION" \
@@ -56,7 +56,7 @@ grep -qE \
 # database created by pg_createcluster.
 #
 if [[ "$NEEDS_BASEBACKUP" == true ]]; then
-    echo "[secondary] Removing temporary data directory created by pg_createcluster"
+    echo "[node3] Removing temporary data directory created by pg_createcluster"
 
     rm -rf "${PGDATA:?}"
 fi
@@ -66,11 +66,11 @@ fi
 # the primary.
 #
 if [[ ! -f "${PGDATA}/PG_VERSION" ]]; then
-    echo "[secondary] Initializing standby from primary"
+    echo "[node3] Initializing standby from primary"
 
-    echo "[secondary] Waiting for primary"
+    echo "[node3] Waiting for primary"
 
-    until pg_isready -h pg-primary -p 5432 >/dev/null 2>&1; do
+    until pg_isready -h pg-node1 -p 5432 >/dev/null 2>&1; do
         sleep 2
     done
 
@@ -87,7 +87,7 @@ if [[ ! -f "${PGDATA}/PG_VERSION" ]]; then
         /var/lib/postgresql
 
     printf '%s\n' \
-        "pg-primary:5432:replication:replicator:${REPLICATION_PASSWORD}" \
+        "pg-node1:5432:replication:replicator:${REPLICATION_PASSWORD}" \
         > /var/lib/postgresql/.pgpass
 
     chown postgres:postgres /var/lib/postgresql/.pgpass
@@ -95,11 +95,11 @@ if [[ ! -f "${PGDATA}/PG_VERSION" ]]; then
 
     unset REPLICATION_PASSWORD
 
-    echo "[secondary] Running pg_basebackup"
+    echo "[node3] Running pg_basebackup"
 
     runuser -u postgres -- \
         pg_basebackup \
-            -h pg-primary \
+            -h pg-node1 \
             -p 5432 \
             -U replicator \
             -D "$PGDATA" \
@@ -111,7 +111,7 @@ if [[ ! -f "${PGDATA}/PG_VERSION" ]]; then
 
     chown -R postgres:postgres "$PGDATA"
 
-    echo "[secondary] Base backup completed"
+    echo "[node3] Base backup completed"
 fi
 
 #
@@ -124,7 +124,7 @@ if [[ ! -f "${PGDATA}/standby.signal" ]]; then
     exit 1
 fi
 
-echo "[secondary] Starting PostgreSQL standby"
+echo "[node3] Starting PostgreSQL standby"
 
 exec runuser -u postgres -- \
     "/usr/lib/postgresql/${PG_VERSION}/bin/postgres" \

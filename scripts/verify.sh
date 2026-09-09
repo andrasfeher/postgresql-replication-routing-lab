@@ -11,20 +11,24 @@ PASSWORD="$(<"$PASSWORD_FILE")"
 printf '\n== Container status ==\n'
 docker compose ps
 
-printf '\n== Primary role ==\n'
-docker compose exec -T pg-primary \
+printf '\n== node1 role ==\n'
+docker compose exec -T pg-node1 \
     runuser -u postgres -- psql -XAtc "SELECT 'in_recovery=' || pg_is_in_recovery();"
 
-printf '\n== Standby role ==\n'
-docker compose exec -T pg-secondary \
+printf '\n== node2 role ==\n'
+docker compose exec -T pg-node2 \
+    runuser -u postgres -- psql -XAtc "SELECT 'in_recovery=' || pg_is_in_recovery();"
+
+printf '\n== node3 role ==\n'
+docker compose exec -T pg-node3 \
     runuser -u postgres -- psql -XAtc "SELECT 'in_recovery=' || pg_is_in_recovery();"
 
 printf '\n== Streaming replication ==\n'
-docker compose exec -T pg-primary \
+docker compose exec -T pg-node1 \
     runuser -u postgres -- psql -X -c \
     "SELECT application_name, state, sync_state, client_addr FROM pg_stat_replication;"
 
-printf '\n== Read/write endpoint (:5432 via PgBouncer -> HAProxy -> primary) ==\n'
+printf '\n== Read/write endpoint (:5432 via PgBouncer -> HAProxy -> node1) ==\n'
 PGPASSWORD="$PASSWORD" psql -X -h 127.0.0.1 -p 5432 -U postgres -d postgres -Atc \
     "SELECT 'recovery=' || pg_is_in_recovery() || ', port=' || inet_server_port();"
 
