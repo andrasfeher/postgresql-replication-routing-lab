@@ -1,0 +1,87 @@
+# Patroni configuration for the PostgreSQL 18 replication/routing lab.
+#
+# Passwords are intentionally NOT stored in this file.
+# Supply them to each Patroni container with environment variables:
+#
+#   PATRONI_SUPERUSER_USERNAME=postgres
+#   PATRONI_SUPERUSER_PASSWORD=<postgres password>
+#   PATRONI_REPLICATION_USERNAME=replicator
+#   PATRONI_REPLICATION_PASSWORD=<replication password>
+#
+# The three Patroni nodes use a 3-member etcd v3 cluster:
+#   etcd1:2379, etcd2:2379, etcd3:2379
+#
+# Patroni owns PostgreSQL initialization and lifecycle. Do not run the old
+# primary/standby pg_createcluster + pg_basebackup entrypoint scripts when
+# these files are introduced.
+
+scope: postgres-lab
+namespace: /service/
+name: pg-node3
+
+restapi:
+  listen: 0.0.0.0:8008
+  connect_address: pg-node3:8008
+
+etcd3:
+  hosts:
+    - etcd1:2379
+    - etcd2:2379
+    - etcd3:2379
+
+bootstrap:
+  dcs:
+    ttl: 30
+    loop_wait: 10
+    retry_timeout: 10
+    maximum_lag_on_failover: 1048576
+    failsafe_mode: false
+
+    postgresql:
+      use_pg_rewind: true
+      use_slots: true
+
+      parameters:
+        wal_level: replica
+        hot_standby: "on"
+        max_wal_senders: 10
+        max_replication_slots: 10
+        wal_keep_size: 256MB
+        wal_log_hints: "on"
+        password_encryption: scram-sha-256
+
+  initdb:
+    - encoding: UTF8
+    - data-checksums
+
+  pg_hba:
+    - local all all peer
+    - host all all 0.0.0.0/0 scram-sha-256
+    - host replication replicator 0.0.0.0/0 scram-sha-256
+
+postgresql:
+  listen: 0.0.0.0:5432
+  connect_address: pg-node3:5432
+  data_dir: /var/lib/postgresql/18/node3
+  bin_dir: /usr/lib/postgresql/18/bin
+
+  authentication:
+    superuser:
+      username: postgres
+    replication:
+      username: replicator
+
+  parameters:
+    unix_socket_directories: /var/run/postgresql
+
+  basebackup:
+    checkpoint: fast
+
+watchdog:
+  mode: "off"
+
+tags:
+  nofailover: false
+  noloadbalance: false
+  clonefrom: false
+  nosync: false
