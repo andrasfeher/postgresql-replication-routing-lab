@@ -275,26 +275,6 @@ services:
       - pgnet
     restart: unless-stopped
 
-  pgbouncer-3:
-    image: ghcr.io/icoretech/pgbouncer-docker:1.25.2
-    container_name: pgbouncer-3
-    hostname: pgbouncer-3
-    depends_on:
-      haproxy:
-        condition: service_started
-    entrypoint: ["/usr/local/bin/pgbouncer-entrypoint.sh"]
-    volumes:
-      - ./pgbouncer/pgbouncer-3.ini:/etc/pgbouncer/pgbouncer.ini:ro
-      - ./pgbouncer/entrypoint.sh:/usr/local/bin/pgbouncer-entrypoint.sh:ro
-    secrets:
-      - postgres_password
-    ports:
-      - "127.0.0.1:5434:6432"
-    networks:
-      - pgnet
-    restart: unless-stopped
-
-
 networks:
   pgnet:
     driver: bridge

@@ -4,7 +4,7 @@ A portfolio-grade local lab for building a small PostgreSQL high-availability pl
 
 The project exposes separate client endpoints for read/write and read-only traffic while keeping PostgreSQL itself private to the Docker network.
 
-> **Current development stage:** the original three-node primary/standby lab is being converted to Patroni-managed high availability. Patroni owns PostgreSQL initialization, replication lifecycle, role management, leader election, and promotion. A three-member etcd cluster provides the distributed configuration store (DCS).
+> **Current architecture:** PostgreSQL HA is managed by Patroni. Patroni owns initialization, replication lifecycle, role management, leader election and promotion. A three-member etcd cluster provides the DCS, while HAProxy discovers primary/replica roles through Patroni's REST API.
 
 The topology contains three role-neutral PostgreSQL services: **`pg-node1`**, **`pg-node2`**, and **`pg-node3`**. Patroni makes their database roles dynamic, so a node name identifies a host rather than permanently identifying a primary or replica.
 
@@ -29,13 +29,11 @@ The topology contains three role-neutral PostgreSQL services: **`pg-node1`**, **
 flowchart TB
     C[Client / psql]
 
-    C --> P1[PgBouncer 1\nlocalhost:5432]
-    C --> P2[PgBouncer 2\nlocalhost:5433]
-    C --> P3[PgBouncer 3\nlocalhost:5434]
+    C -->|127.0.0.1:5432 RW| P1[PgBouncer-1 RW\n:6432]
+    C -->|127.0.0.1:5433 RO| P2[PgBouncer-2 RO\n:6432]
 
-    P1 --> H[HAProxy]
-    P2 --> H
-    P3 --> H
+    P1 -->|HAProxy :5432| H[HAProxy\nPatroni role-aware routing]
+    P2 -->|HAProxy :5433| H
 
     H --> N1[pg-node1\nPatroni + PostgreSQL 18]
     H --> N2[pg-node2\nPatroni + PostgreSQL 18]
@@ -51,6 +49,16 @@ flowchart TB
 ```
 
 PostgreSQL node names are deliberately **role-neutral**. Patroni determines which member is primary and which members are replicas. HAProxy can query Patroni's REST API on port `8008` to route new connections according to the current role.
+
+### Client endpoints
+
+| Host endpoint | Path | Purpose |
+|---|---|---|
+| `127.0.0.1:5432` | PgBouncer-1 → HAProxy `:5432` → current Patroni primary | Read/write |
+| `127.0.0.1:5433` | PgBouncer-2 → HAProxy `:5433` → healthy Patroni replicas | Read-only |
+| `127.0.0.1:8404/stats` | HAProxy statistics listener | Monitoring |
+
+There is deliberately **no port `5434` / PgBouncer-3 endpoint**. Clients address roles rather than physical nodes, so the topology remains valid after failover.
 
 ### Component responsibilities
 
@@ -116,11 +124,12 @@ The generated PostgreSQL password is stored locally in `secrets/postgres_passwor
 ```bash
 export PGPASSWORD="$(cat secrets/postgres_password.txt)"
 
-# Read/write endpoint -> primary
+# Read/write endpoint -> current Patroni primary
 psql -h 127.0.0.1 -p 5432 -U postgres -d postgres
 
-# Read-only endpoint -> standby
+# Read-only endpoint -> a healthy Patroni replica
 psql -h 127.0.0.1 -p 5433 -U postgres -d postgres
+
 ```
 
 Confirm the target role:
@@ -240,8 +249,7 @@ make reset
 ├── pgbouncer/
 │   ├── entrypoint.sh
 │   ├── pgbouncer-1.ini
-│   ├── pgbouncer-2.ini
-│   └── pgbouncer-3.ini
+│   └── pgbouncer-2.ini
 ├── scripts/
 │   ├── check.sh
 │   ├── init-secrets.sh
@@ -256,7 +264,7 @@ make reset
 
 The original lab assigned roles statically: `pg-node1` was primary and `pg-node2`/`pg-node3` were standbys. The Patroni iteration removes that assumption. Patroni owns PostgreSQL initialization, replica cloning, start/stop operations, leader election and promotion.
 
-HAProxy should use Patroni's role-aware REST endpoints rather than static node roles:
+HAProxy uses Patroni's role-aware REST endpoints rather than static node roles:
 
 ```text
 RW backend -> Patroni /primary -> current primary
@@ -269,9 +277,15 @@ This remains an educational architecture lab rather than a drop-in production HA
 
 For the reasoning behind the topology and its trade-offs, read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
+## Failover model
+
+A node name is not a database role. If the current primary fails, Patroni uses etcd-backed state to elect and promote an eligible replica. HAProxy's `/primary` and `/replica` checks update backend eligibility automatically. New RW connections go to the promoted primary, while RO connections continue to use healthy replicas.
+
+Automatic failover does not preserve an in-flight transaction; applications still need appropriate reconnect and transaction-retry behavior.
+
 ## Patroni failover exercises
 
-Once the Patroni conversion is operational:
+Useful Patroni HA exercises include:
 
 1. verify one primary and two replicas with `patronictl`;
 2. stop the current primary and observe Patroni leader election;

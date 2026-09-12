@@ -36,5 +36,9 @@ printf '\n== Read-only endpoint (:5433 via PgBouncer -> HAProxy -> standby) ==\n
 PGPASSWORD="$PASSWORD" psql -X -h 127.0.0.1 -p 5433 -U postgres -d postgres -Atc \
     "SELECT 'recovery=' || pg_is_in_recovery() || ', port=' || inet_server_port();"
 
+printf '\n== Read-only endpoint (:5434 via PgBouncer -> HAProxy -> standby) ==\n'
+PGPASSWORD="$PASSWORD" psql -X -h 127.0.0.1 -p 5434 -U postgres -d postgres -Atc \
+    "SELECT 'recovery=' || pg_is_in_recovery() || ', port=' || inet_server_port();"
+
 unset PASSWORD
 printf '\nVerification complete.\n'
