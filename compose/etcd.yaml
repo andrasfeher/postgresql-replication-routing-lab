@@ -1,0 +1,71 @@
+x-etcd-common: &etcd-common
+  image: gcr.io/etcd-development/etcd:v3.6.0
+  networks:
+    - pgnet
+  healthcheck:
+    test:
+      - CMD
+      - /usr/local/bin/etcdctl
+      - --endpoints=http://127.0.0.1:2379
+      - endpoint
+      - health
+    interval: 5s
+    timeout: 3s
+    retries: 20
+    start_period: 10s
+  restart: unless-stopped
+
+services:
+  etcd1:
+    <<: *etcd-common
+    container_name: etcd1
+    hostname: etcd1
+    command:
+      - /usr/local/bin/etcd
+      - --name=etcd1
+      - --data-dir=/etcd-data
+      - --listen-client-urls=http://0.0.0.0:2379
+      - --advertise-client-urls=http://etcd1:2379
+      - --listen-peer-urls=http://0.0.0.0:2380
+      - --initial-advertise-peer-urls=http://etcd1:2380
+      - --initial-cluster=etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380
+      - --initial-cluster-state=new
+      - --initial-cluster-token=postgres-lab-etcd
+    volumes:
+      - etcd1_data:/etcd-data
+
+  etcd2:
+    <<: *etcd-common
+    container_name: etcd2
+    hostname: etcd2
+    command:
+      - /usr/local/bin/etcd
+      - --name=etcd2
+      - --data-dir=/etcd-data
+      - --listen-client-urls=http://0.0.0.0:2379
+      - --advertise-client-urls=http://etcd2:2379
+      - --listen-peer-urls=http://0.0.0.0:2380
+      - --initial-advertise-peer-urls=http://etcd2:2380
+      - --initial-cluster=etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380
+      - --initial-cluster-state=new
+      - --initial-cluster-token=postgres-lab-etcd
+    volumes:
+      - etcd2_data:/etcd-data
+
+  etcd3:
+    <<: *etcd-common
+    container_name: etcd3
+    hostname: etcd3
+    command:
+      - /usr/local/bin/etcd
+      - --name=etcd3
+      - --data-dir=/etcd-data
+      - --listen-client-urls=http://0.0.0.0:2379
+      - --advertise-client-urls=http://etcd3:2379
+      - --listen-peer-urls=http://0.0.0.0:2380
+      - --initial-advertise-peer-urls=http://etcd3:2380
+      - --initial-cluster=etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380
+      - --initial-cluster-state=new
+      - --initial-cluster-token=postgres-lab-etcd
+    volumes:
+      - etcd3_data:/etcd-data

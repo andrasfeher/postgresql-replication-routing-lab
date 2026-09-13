@@ -1,0 +1,19 @@
+services:
+  haproxy:
+    image: haproxy:3.2-alpine
+    container_name: haproxy
+    hostname: haproxy
+    depends_on:
+      pg-node1:
+        condition: service_healthy
+      pg-node2:
+        condition: service_healthy
+      pg-node3:
+        condition: service_healthy
+    volumes:
+      - ./haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    ports:
+      - "127.0.0.1:8404:8404"
+    networks:
+      - pgnet
+    restart: unless-stopped

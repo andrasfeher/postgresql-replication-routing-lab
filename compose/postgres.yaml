@@ -1,0 +1,50 @@
+x-postgres-common: &postgres-common
+  init: true
+  build:
+    context: .
+    dockerfile: Dockerfile
+  secrets:
+    - postgres_password
+    - replication_password
+  networks:
+    - pgnet
+  depends_on:
+    etcd1:
+      condition: service_started
+    etcd2:
+      condition: service_started
+    etcd3:
+      condition: service_started
+  healthcheck:
+    test:
+      - CMD-SHELL
+      - curl -fsS http://localhost:8008/health >/dev/null || exit 1
+    interval: 5s
+    timeout: 3s
+    retries: 20
+    start_period: 20s
+
+services:
+  pg-node1:
+    <<: *postgres-common
+    container_name: pg-node1
+    hostname: pg-node1
+    volumes:
+      - pg_node1_data:/var/lib/postgresql
+      - ./patroni/patroni-node1.yml:/etc/patroni/patroni.yml:ro
+
+  pg-node2:
+    <<: *postgres-common
+    container_name: pg-node2
+    hostname: pg-node2
+    volumes:
+      - pg_node2_data:/var/lib/postgresql
+      - ./patroni/patroni-node2.yml:/etc/patroni/patroni.yml:ro
+
+  pg-node3:
+    <<: *postgres-common
+    container_name: pg-node3
+    hostname: pg-node3
+    volumes:
+      - pg_node3_data:/var/lib/postgresql
+      - ./patroni/patroni-node3.yml:/etc/patroni/patroni.yml:ro

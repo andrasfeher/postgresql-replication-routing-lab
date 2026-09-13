@@ -1,0 +1,33 @@
+x-pgbouncer-common: &pgbouncer-common
+  image: ghcr.io/icoretech/pgbouncer-docker:1.25.2
+  depends_on:
+    haproxy:
+      condition: service_started
+  entrypoint:
+    - /usr/local/bin/pgbouncer-entrypoint.sh
+  secrets:
+    - postgres_password
+  networks:
+    - pgnet
+  restart: unless-stopped
+
+services:
+  pgbouncer-1:
+    <<: *pgbouncer-common
+    container_name: pgbouncer-1
+    hostname: pgbouncer-1
+    volumes:
+      - ./pgbouncer/pgbouncer-1.ini:/etc/pgbouncer/pgbouncer.ini:ro
+      - ./pgbouncer/entrypoint.sh:/usr/local/bin/pgbouncer-entrypoint.sh:ro
+    ports:
+      - "127.0.0.1:5432:6432"
+
+  pgbouncer-2:
+    <<: *pgbouncer-common
+    container_name: pgbouncer-2
+    hostname: pgbouncer-2
+    volumes:
+      - ./pgbouncer/pgbouncer-2.ini:/etc/pgbouncer/pgbouncer.ini:ro
+      - ./pgbouncer/entrypoint.sh:/usr/local/bin/pgbouncer-entrypoint.sh:ro
+    ports:
+      - "127.0.0.1:5433:6432"
