@@ -13,12 +13,12 @@ fi
 create_secret() {
     local file="$1"
     if [[ -e "$file" ]]; then
-        echo "Keeping existing secret: ${file#$ROOT_DIR/}"
+        echo "Keeping existing secret: ${file#"$ROOT_DIR"/}"
     else
         umask 077
         openssl rand -base64 24 | tr -d '\n' > "$file"
         printf '\n' >> "$file"
-        echo "Created: ${file#$ROOT_DIR/}"
+        echo "Created: ${file#"$ROOT_DIR"/}"
     fi
 }
 

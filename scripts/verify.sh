@@ -23,10 +23,9 @@ printf '\n== node3 role ==\n'
 docker compose exec -T pg-node3 \
     runuser -u postgres -- psql -XAtc "SELECT 'in_recovery=' || pg_is_in_recovery();"
 
-printf '\n== Streaming replication ==\n'
+printf '\n== List of nodes under patroni control ==\n'
 docker compose exec -T pg-node1 \
-    runuser -u postgres -- psql -X -c \
-    "SELECT application_name, state, sync_state, client_addr FROM pg_stat_replication;"
+    patronictl -c /etc/patroni/patroni.yml list
 
 printf '\n== Read/write endpoint (:5432 via PgBouncer -> HAProxy -> node1) ==\n'
 PGPASSWORD="$PASSWORD" psql -X -h 127.0.0.1 -p 5432 -U postgres -d postgres -Atc \
@@ -34,10 +33,6 @@ PGPASSWORD="$PASSWORD" psql -X -h 127.0.0.1 -p 5432 -U postgres -d postgres -Atc
 
 printf '\n== Read-only endpoint (:5433 via PgBouncer -> HAProxy -> standby) ==\n'
 PGPASSWORD="$PASSWORD" psql -X -h 127.0.0.1 -p 5433 -U postgres -d postgres -Atc \
-    "SELECT 'recovery=' || pg_is_in_recovery() || ', port=' || inet_server_port();"
-
-printf '\n== Read-only endpoint (:5434 via PgBouncer -> HAProxy -> standby) ==\n'
-PGPASSWORD="$PASSWORD" psql -X -h 127.0.0.1 -p 5434 -U postgres -d postgres -Atc \
     "SELECT 'recovery=' || pg_is_in_recovery() || ', port=' || inet_server_port();"
 
 unset PASSWORD

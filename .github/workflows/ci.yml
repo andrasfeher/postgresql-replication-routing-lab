@@ -36,4 +36,4 @@ jobs:
             haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg
 
       - name: Build PostgreSQL image
-        run: docker compose build pg-primary
+        run: docker compose build pg-node1
