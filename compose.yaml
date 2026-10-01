@@ -9,6 +9,8 @@ include:
     project_directory: .
   - path: ./compose/pgbouncer.yaml
     project_directory: .
+  - path: ./compose/subscriber.yaml
+    project_directory: .
 
 networks:
   pgnet:
@@ -21,6 +23,7 @@ volumes:
   pg_node1_data:
   pg_node2_data:
   pg_node3_data:
+  pg_subscriber_data:
 
 secrets:
   postgres_password:

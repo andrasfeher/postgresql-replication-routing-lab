@@ -14,6 +14,7 @@ The topology contains three role-neutral PostgreSQL services: **`pg-node1`**, **
 - Patroni-managed PostgreSQL initialization, replication lifecycle, leader election and promotion
 - Three-member etcd v3 distributed configuration store
 - Physical streaming replication between PostgreSQL members
+- Standalone PostgreSQL 18 subscriber for logical replication experiments
 - Patroni REST API health and role discovery
 - HAProxy routing designed around Patroni role-aware health checks
 - PgBouncer transaction pooling
@@ -56,9 +57,24 @@ PostgreSQL node names are deliberately **role-neutral**. Patroni determines whic
 |---|---|---|
 | `127.0.0.1:5432` | PgBouncer-1 → HAProxy `:5432` → current Patroni primary | Read/write |
 | `127.0.0.1:5433` | PgBouncer-2 → HAProxy `:5433` → healthy Patroni replicas | Read-only |
+| `127.0.0.1:5435` | Standalone `pg-subscriber` PostgreSQL instance | Logical replication target |
 | `127.0.0.1:8404/stats` | HAProxy statistics listener | Monitoring |
 
 There is deliberately **no port `5434` / PgBouncer-3 endpoint**. Clients address roles rather than physical nodes, so the topology remains valid after failover.
+
+### Logical subscriber (first stage)
+
+The `pg-subscriber` service is a separate PostgreSQL 18 instance on `pgnet`, outside Patroni. Its data persists in `pg_subscriber_data`. Start it with:
+
+```bash
+make secrets
+docker compose up -d pg-subscriber
+docker compose ps pg-subscriber
+export PGPASSWORD="$(cat secrets/postgres_password.txt)"
+psql -h 127.0.0.1 -p 5435 -U postgres -d postgres -c 'SELECT pg_is_in_recovery();'
+```
+
+The result should be `f`: this is an independent writable server, not a physical standby. No publication, subscription, or sample tables are created automatically. To set up logical replication, first configure `wal_level=logical` in the **running Patroni cluster configuration** (and ensure sufficient replication slots and WAL senders), then create a test table and publication on the publisher, matching schema on this subscriber, and a subscription pointing at HAProxy's internal **RW** endpoint `haproxy:5432`. Connect directly to HAProxy for the subscription; transaction pooling through PgBouncer is unsuitable for the replication connection. Plan and test logical slot failover separately before treating a Patroni switchover as seamless for this subscriber.
 
 ### Component responsibilities
 
@@ -236,6 +252,12 @@ make reset
 ├── Dockerfile
 ├── Makefile
 ├── compose.yaml
+├── compose/
+│   ├── etcd.yaml
+│   ├── haproxy.yaml
+│   ├── pgbouncer.yaml
+│   ├── postgres.yaml
+│   └── subscriber.yaml
 ├── docs/
 │   ├── ARCHITECTURE.md
 │   ├── PORTFOLIO.md

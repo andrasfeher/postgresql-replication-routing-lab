@@ -1,0 +1,26 @@
+services:
+  pg-subscriber:
+    image: postgres:18
+    container_name: pg-subscriber
+    hostname: pg-subscriber
+    restart: unless-stopped
+    init: true
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      POSTGRES_DB: postgres
+    secrets:
+      - postgres_password
+    volumes:
+      - pg_subscriber_data:/var/lib/postgresql
+      - ./init-subscriber.sql:/docker-entrypoint-initdb.d:ro
+    networks:
+      - pgnet
+    ports:
+      - "127.0.0.1:5435:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
