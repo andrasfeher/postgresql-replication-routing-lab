@@ -11,6 +11,9 @@ include:
     project_directory: .
   - path: ./compose/subscriber.yaml
     project_directory: .
+  - path: ./compose/compose.ansible.yaml
+    project_directory: .
+
 
 networks:
   pgnet:

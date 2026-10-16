@@ -1,0 +1,26 @@
+---
+- name: PostgreSQL Cluster Health Check
+  hosts: postgres
+  gather_facts: false
+
+  tasks:
+
+    - name: Check PostgreSQL version
+      ansible.builtin.command:
+        cmd: psql --version
+      register: pg_version
+      changed_when: false
+
+    - name: Display PostgreSQL version
+      ansible.builtin.debug:
+        var: pg_version.stdout
+
+    - name: Check Patroni API
+      ansible.builtin.command:
+        cmd: curl -sf http://localhost:8008/patroni
+      register: patroni_status
+      changed_when: false
+
+    - name: Display Patroni status
+      ansible.builtin.debug:
+        var: patroni_status.stdout

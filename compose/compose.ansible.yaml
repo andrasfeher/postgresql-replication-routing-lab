@@ -1,0 +1,21 @@
+services:
+  ansible:
+    build:
+      context: ./ansible
+
+    container_name: ansible-controller
+
+    hostname: ansible-controller
+
+    volumes:
+      - ./ansible:/ansible
+      - /var/run/docker.sock:/var/run/docker.sock      
+
+    working_dir: /ansible
+
+    networks:
+      - pgnet
+
+    command: sleep infinity
+
+
