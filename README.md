@@ -30,26 +30,40 @@ The topology contains three role-neutral PostgreSQL services: **`pg-node1`**, **
 
 ```mermaid
 flowchart TB
-    B[Browser] -->|localhost:8080 HTTP| X[NGINX]
-    X -->|internal web frontend| W[Python task app]
-    W -->|webapp role| P1
-    P1 --> H[HAProxy]
-    W --> M[Mailpit verification inbox]
-    C[SQL client] -->|localhost:5432 RW| P1[PgBouncer RW]
-    C -->|localhost:5433 RO| P2[PgBouncer RO]
-    P2 --> H
-    H --> N1[pg-node1]
-    H --> N2[pg-node2]
-    H --> N3[pg-node3]
-    H -.->|verified HTTPS role checks| A[Patroni APIs]
-    A --- N1
-    A --- N2
-    A --- N3
-    N1 -->|mutual TLS and scoped credentials| E[Three-member etcd cluster]
-    N2 --> E
-    N3 --> E
+    Browser[Browser] -->|localhost:8080 HTTP| Nginx[NGINX]
+    Nginx -->|web_frontend network| Web[Python task app]
+    Web -->|webapp login - pgbouncer-1:6432| PoolRW[PgBouncer RW - transaction pool]
+    Web -->|SMTP| Mail[Mailpit - localhost:8025 inbox]
+    Client[SQL client] -->|localhost:5432| PoolRW
+    Client -->|localhost:5433| PoolRO[PgBouncer RO - transaction pool]
+
+    subgraph Proxy[HAProxy database routing]
+        RW[RW frontend - haproxy:5432]
+        RO[RO frontend - haproxy:5433]
+    end
+    PoolRW --> RW
+    PoolRO --> RO
+
+    subgraph Cluster[PostgreSQL 18 - pg-node1 / pg-node2 / pg-node3 - dynamic roles]
+        Primary[Current primary]
+        ReplicaA[Replica A]
+        ReplicaB[Replica B]
+    end
+    RW --> Primary
+    RO --> ReplicaA
+    RO --> ReplicaB
+    Primary -.->|asynchronous WAL replication| ReplicaA
+    Primary -.->|asynchronous WAL replication| ReplicaB
+
+    Init[web-init - administrator-only setup] -.->|schema and grants - direct connection| RW
+    RW -.->|HTTPS GET /primary| Patroni[Patroni APIs and lifecycle management on all nodes]
+    RO -.->|HTTPS GET /replica| Patroni
+    Patroni -.->|manages roles and lifecycle| Cluster
+    Patroni -->|mutual TLS and namespace-scoped authentication| Etcd[etcd1 / etcd2 / etcd3 - coordination network]
 ```
 
+**Web request path:** browser → NGINX → Python app → PgBouncer RW → HAProxy RW → current primary.
+Only administrator-only `web-init` bypasses PgBouncer for schema initialization.
 
 PostgreSQL node names are deliberately **role-neutral**. Patroni determines which member is primary and which members are replicas. HAProxy queries Patroni's HTTPS API on its internal management addresses at port `8008` to route new connections according to the current role.
 
