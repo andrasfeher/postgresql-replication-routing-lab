@@ -14,7 +14,11 @@ fi
 
 docker compose config >/dev/null
 
+# Syntax validation runs outside pgnet; no backend connections are made.
 docker run --rm \
+    --add-host pg-node1:127.0.0.1 \
+    --add-host pg-node2:127.0.0.1 \
+    --add-host pg-node3:127.0.0.1 \
     -v "$ROOT_DIR/haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro" \
     haproxy:3.2-alpine \
     haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg || status=$?
