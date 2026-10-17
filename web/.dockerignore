@@ -1,0 +1,7 @@
+# Only required build sources are included; backups and secrets stay out.
+**
+!Dockerfile
+!.dockerignore
+!app.py
+!init_db.py
+!schema.sql

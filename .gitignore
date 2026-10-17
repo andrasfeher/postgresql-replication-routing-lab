@@ -18,3 +18,7 @@ Thumbs.db
 # Local output
 *.log
 .tmp/
+
+secrets/patroni-tls/
+
+secrets/etcd-tls/

@@ -1,0 +1,6 @@
+# Only required build sources are included; backups and secrets stay out.
+**
+!Dockerfile
+!.dockerignore
+!bootstrap-auth.sh
+!admin.sh

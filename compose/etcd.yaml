@@ -1,14 +1,17 @@
 x-etcd-common: &etcd-common
   image: gcr.io/etcd-development/etcd:v3.6.0
-  networks:
-    - pgnet
   healthcheck:
     test:
       - CMD
       - /usr/local/bin/etcdctl
-      - --endpoints=http://127.0.0.1:2379
-      - endpoint
-      - health
+      - --cacert=/run/secrets/etcd_client_ca
+      - --cert=/run/secrets/etcd_health_cert
+      - --key=/run/secrets/etcd_health_key
+      - --command-timeout=2s
+      - get
+      - /health/
+      - --prefix
+      - --limit=1
     interval: 5s
     timeout: 3s
     retries: 20
@@ -20,15 +23,45 @@ services:
     <<: *etcd-common
     container_name: etcd1
     hostname: etcd1
+    networks:
+      coordination:
+        ipv4_address: 172.30.81.11
+        aliases: [etcd1-dcs]
+    # Health identity is read-only and has no access to Patroni state.
+    environment:
+      ETCDCTL_ENDPOINTS: https://etcd1-dcs:2379
+    secrets:
+      - etcd_client_ca
+      - etcd_peer_ca
+      - etcd_health_cert
+      - etcd_health_key
+      - source: etcd1_server_crt
+        target: etcd_server_cert
+      - source: etcd1_server_key
+        target: etcd_server_key
+      - source: etcd1_peer_crt
+        target: etcd_peer_cert
+      - source: etcd1_peer_key
+        target: etcd_peer_key
     command:
       - /usr/local/bin/etcd
       - --name=etcd1
       - --data-dir=/etcd-data
-      - --listen-client-urls=http://0.0.0.0:2379
-      - --advertise-client-urls=http://etcd1:2379
-      - --listen-peer-urls=http://0.0.0.0:2380
-      - --initial-advertise-peer-urls=http://etcd1:2380
-      - --initial-cluster=etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380
+      - --listen-client-urls=https://172.30.81.11:2379
+      - --advertise-client-urls=https://etcd1-dcs:2379
+      - --cert-file=/run/secrets/etcd_server_cert
+      - --key-file=/run/secrets/etcd_server_key
+      - --trusted-ca-file=/run/secrets/etcd_client_ca
+      - --client-cert-auth=true
+      - --listen-peer-urls=https://172.30.81.11:2380
+      - --initial-advertise-peer-urls=https://etcd1-dcs:2380
+      - --peer-cert-file=/run/secrets/etcd_peer_cert
+      - --peer-key-file=/run/secrets/etcd_peer_key
+      - --peer-trusted-ca-file=/run/secrets/etcd_peer_ca
+      - --peer-client-cert-auth=true
+      - --peer-cert-allowed-cn=etcd-peer
+      - --tls-min-version=TLS1.2
+      - --initial-cluster=etcd1=https://etcd1-dcs:2380,etcd2=https://etcd2-dcs:2380,etcd3=https://etcd3-dcs:2380
       - --initial-cluster-state=new
       - --initial-cluster-token=postgres-lab-etcd
     volumes:
@@ -38,15 +71,45 @@ services:
     <<: *etcd-common
     container_name: etcd2
     hostname: etcd2
+    networks:
+      coordination:
+        ipv4_address: 172.30.81.12
+        aliases: [etcd2-dcs]
+    # Health identity is read-only and has no access to Patroni state.
+    environment:
+      ETCDCTL_ENDPOINTS: https://etcd2-dcs:2379
+    secrets:
+      - etcd_client_ca
+      - etcd_peer_ca
+      - etcd_health_cert
+      - etcd_health_key
+      - source: etcd2_server_crt
+        target: etcd_server_cert
+      - source: etcd2_server_key
+        target: etcd_server_key
+      - source: etcd2_peer_crt
+        target: etcd_peer_cert
+      - source: etcd2_peer_key
+        target: etcd_peer_key
     command:
       - /usr/local/bin/etcd
       - --name=etcd2
       - --data-dir=/etcd-data
-      - --listen-client-urls=http://0.0.0.0:2379
-      - --advertise-client-urls=http://etcd2:2379
-      - --listen-peer-urls=http://0.0.0.0:2380
-      - --initial-advertise-peer-urls=http://etcd2:2380
-      - --initial-cluster=etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380
+      - --listen-client-urls=https://172.30.81.12:2379
+      - --advertise-client-urls=https://etcd2-dcs:2379
+      - --cert-file=/run/secrets/etcd_server_cert
+      - --key-file=/run/secrets/etcd_server_key
+      - --trusted-ca-file=/run/secrets/etcd_client_ca
+      - --client-cert-auth=true
+      - --listen-peer-urls=https://172.30.81.12:2380
+      - --initial-advertise-peer-urls=https://etcd2-dcs:2380
+      - --peer-cert-file=/run/secrets/etcd_peer_cert
+      - --peer-key-file=/run/secrets/etcd_peer_key
+      - --peer-trusted-ca-file=/run/secrets/etcd_peer_ca
+      - --peer-client-cert-auth=true
+      - --peer-cert-allowed-cn=etcd-peer
+      - --tls-min-version=TLS1.2
+      - --initial-cluster=etcd1=https://etcd1-dcs:2380,etcd2=https://etcd2-dcs:2380,etcd3=https://etcd3-dcs:2380
       - --initial-cluster-state=new
       - --initial-cluster-token=postgres-lab-etcd
     volumes:
@@ -56,16 +119,79 @@ services:
     <<: *etcd-common
     container_name: etcd3
     hostname: etcd3
+    networks:
+      coordination:
+        ipv4_address: 172.30.81.13
+        aliases: [etcd3-dcs]
+    # Health identity is read-only and has no access to Patroni state.
+    environment:
+      ETCDCTL_ENDPOINTS: https://etcd3-dcs:2379
+    secrets:
+      - etcd_client_ca
+      - etcd_peer_ca
+      - etcd_health_cert
+      - etcd_health_key
+      - source: etcd3_server_crt
+        target: etcd_server_cert
+      - source: etcd3_server_key
+        target: etcd_server_key
+      - source: etcd3_peer_crt
+        target: etcd_peer_cert
+      - source: etcd3_peer_key
+        target: etcd_peer_key
     command:
       - /usr/local/bin/etcd
       - --name=etcd3
       - --data-dir=/etcd-data
-      - --listen-client-urls=http://0.0.0.0:2379
-      - --advertise-client-urls=http://etcd3:2379
-      - --listen-peer-urls=http://0.0.0.0:2380
-      - --initial-advertise-peer-urls=http://etcd3:2380
-      - --initial-cluster=etcd1=http://etcd1:2380,etcd2=http://etcd2:2380,etcd3=http://etcd3:2380
+      - --listen-client-urls=https://172.30.81.13:2379
+      - --advertise-client-urls=https://etcd3-dcs:2379
+      - --cert-file=/run/secrets/etcd_server_cert
+      - --key-file=/run/secrets/etcd_server_key
+      - --trusted-ca-file=/run/secrets/etcd_client_ca
+      - --client-cert-auth=true
+      - --listen-peer-urls=https://172.30.81.13:2380
+      - --initial-advertise-peer-urls=https://etcd3-dcs:2380
+      - --peer-cert-file=/run/secrets/etcd_peer_cert
+      - --peer-key-file=/run/secrets/etcd_peer_key
+      - --peer-trusted-ca-file=/run/secrets/etcd_peer_ca
+      - --peer-client-cert-auth=true
+      - --peer-cert-allowed-cn=etcd-peer
+      - --tls-min-version=TLS1.2
+      - --initial-cluster=etcd1=https://etcd1-dcs:2380,etcd2=https://etcd2-dcs:2380,etcd3=https://etcd3-dcs:2380
       - --initial-cluster-state=new
       - --initial-cluster-token=postgres-lab-etcd
     volumes:
       - etcd3_data:/etcd-data
+
+  etcd-bootstrap:
+    build: ./etcd
+    entrypoint: [/bin/sh, /usr/local/bin/bootstrap-auth.sh]
+    environment: &etcd-admin-environment
+      ETCDCTL_ENDPOINTS: https://etcd1-dcs:2379,https://etcd2-dcs:2379,https://etcd3-dcs:2379
+    secrets:
+      - etcd_client_ca
+      - etcd_root_cert
+      - etcd_root_key
+      - etcd_patroni_password
+    networks:
+      - coordination
+    depends_on:
+      etcd1:
+        condition: service_started
+      etcd2:
+        condition: service_started
+      etcd3:
+        condition: service_started
+    restart: "no"
+
+  etcd-admin:
+    profiles: [admin]
+    build: ./etcd
+    environment: *etcd-admin-environment
+    secrets:
+      - etcd_client_ca
+      - etcd_root_cert
+      - etcd_root_key
+    networks:
+      - coordination
+    command: [endpoint, status, --cluster, -w, table]

@@ -24,3 +24,8 @@ create_secret() {
 
 create_secret "$SECRETS_DIR/postgres_password.txt"
 create_secret "$SECRETS_DIR/replication_password.txt"
+create_secret "$SECRETS_DIR/webapp_password.txt"
+create_secret "$SECRETS_DIR/patroni_api_password.txt"
+"$ROOT_DIR/scripts/init-patroni-tls.sh"
+create_secret "$SECRETS_DIR/etcd_patroni_password.txt"
+"$ROOT_DIR/scripts/init-etcd-tls.sh"

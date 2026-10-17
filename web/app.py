@@ -5,6 +5,7 @@ from html import escape
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import secrets
+import ipaddress
 import hashlib
 import hmac
 import re
@@ -17,77 +18,19 @@ from email.message import EmailMessage
 from urllib.parse import parse_qs, urlsplit
 
 import psycopg2
-from psycopg2 import sql
 
 
 CSRF_TOKEN = secrets.token_urlsafe(32)
-SCHEMA_LOCK = threading.Lock()
-schema_ready = False
 AUTH_LOCK = threading.Lock()
 AUTH_ATTEMPTS = {}
 
 
 def connect():
-    global schema_ready
-    settings = dict(
-        password=Path('/run/secrets/postgres_password').read_text().strip(),
+    return psycopg2.connect(
+        user='webapp', dbname='todo',
+        password=Path('/run/secrets/webapp_password').read_text().strip(),
         connect_timeout=5, options='-c statement_timeout=5000',
     )
-    try:
-        connection = psycopg2.connect(**settings)
-    except psycopg2.errors.InvalidCatalogName:
-        # Bootstrap a fresh lab; existing databases and tasks are preserved.
-        with closing(psycopg2.connect(dbname='postgres', **settings)) as admin:
-            admin.autocommit = True
-            with admin.cursor() as cursor:
-                try:
-                    cursor.execute(sql.SQL('CREATE DATABASE {}').format(
-                        sql.Identifier(os.environ.get('PGDATABASE', 'todo'))))
-                except psycopg2.errors.DuplicateDatabase:
-                    pass
-        connection = psycopg2.connect(**settings)
-    try:
-        with SCHEMA_LOCK:
-            if not schema_ready:
-                with connection:
-                    with connection.cursor() as cursor:
-                        cursor.execute('''
-                            CREATE TABLE IF NOT EXISTS public.users (
-                                id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-                                email text NOT NULL UNIQUE,
-                                password_hash text NOT NULL,
-                                created_at timestamptz NOT NULL DEFAULT now()
-                            );
-                            ALTER TABLE public.users ADD COLUMN IF NOT EXISTS email_verified boolean NOT NULL DEFAULT false;
-                            CREATE TABLE IF NOT EXISTS public.email_verifications (
-                                token_hash text PRIMARY KEY,
-                                user_id bigint NOT NULL UNIQUE REFERENCES public.users(id) ON DELETE CASCADE,
-                                created_at timestamptz NOT NULL DEFAULT now(),
-                                expires_at timestamptz NOT NULL DEFAULT now() + interval '1 hour'
-                            );
-                            CREATE TABLE IF NOT EXISTS public.sessions (
-                                token_hash text PRIMARY KEY,
-                                user_id bigint NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
-                                expires_at timestamptz NOT NULL DEFAULT now() + interval '1 day'
-                            );
-                            CREATE TABLE IF NOT EXISTS public.tasks (
-                                id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-                                title text NOT NULL CHECK (length(title) BETWEEN 1 AND 500),
-                                completed boolean NOT NULL DEFAULT false,
-                                created_at timestamptz NOT NULL DEFAULT now()
-                            );
-                            ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS user_id bigint
-                                REFERENCES public.users(id) ON DELETE CASCADE;
-                            DELETE FROM public.tasks WHERE user_id IS NULL;
-                            ALTER TABLE public.tasks ALTER COLUMN user_id SET NOT NULL;
-                            CREATE INDEX IF NOT EXISTS tasks_user_id_id_idx
-                                ON public.tasks (user_id, id DESC)
-                        ''')
-                schema_ready = True
-        return connection
-    except Exception:
-        connection.close()
-        raise
 
 
 STYLE = '''
@@ -133,7 +76,46 @@ def valid_email(value):
 DUMMY_HASH = password_hash('dummy-password-for-timing')
 
 
+class BoundedHTTPServer(ThreadingHTTPServer):
+    max_requests = 64
+    request_timeout = 10
+
+    def __init__(self, *args, **kwargs):
+        self.slots = threading.BoundedSemaphore(self.max_requests)
+        super().__init__(*args, **kwargs)
+
+    def get_request(self):
+        connection, address = super().get_request()
+        connection.settimeout(self.request_timeout)
+        return connection, address
+
+    def process_request(self, request, client_address):
+        if not self.slots.acquire(blocking=False):
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self.slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self.slots.release()
+
+
 class Handler(BaseHTTPRequestHandler):
+    def client_ip(self):
+        address = self.client_address[0]
+        if address == os.environ.get('TRUSTED_PROXY_IP'):
+            try:
+                return str(ipaddress.ip_address(self.headers.get('X-Real-IP', '')))
+            except ValueError:
+                pass
+        return address
+
     def prepare(self):
         self.cookies_out = []
         cookies = SimpleCookie()
@@ -189,7 +171,7 @@ class Handler(BaseHTTPRequestHandler):
                 AUTH_ATTEMPTS[address] = [attempt for attempt in AUTH_ATTEMPTS[address] if attempt > cutoff]
                 if not AUTH_ATTEMPTS[address]:
                     del AUTH_ATTEMPTS[address]
-            attempts = AUTH_ATTEMPTS.setdefault(self.client_address[0], [])
+            attempts = AUTH_ATTEMPTS.setdefault(self.client_ip(), [])
             if len(attempts) >= 20:
                 self.auth_page(registration, 'Too many attempts. Please wait a minute and retry.', 429)
                 return
@@ -430,4 +412,4 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == '__main__':
-    ThreadingHTTPServer(('0.0.0.0', 8080), Handler).serve_forever()
+    BoundedHTTPServer(('0.0.0.0', 8080), Handler).serve_forever()

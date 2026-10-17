@@ -17,7 +17,7 @@
 
     - name: Check Patroni API
       ansible.builtin.command:
-        cmd: curl -sf http://localhost:8008/patroni
+        cmd: curl -sf --cacert /run/patroni/ca.crt https://{{ inventory_hostname }}-mgmt:8008/patroni
       register: patroni_status
       changed_when: false
 

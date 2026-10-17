@@ -1,0 +1,5 @@
+# Only required build sources are included; backups and secrets stay out.
+**
+!Dockerfile
+!.dockerignore
+!requirements.yml

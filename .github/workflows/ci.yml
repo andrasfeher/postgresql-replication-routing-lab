@@ -21,6 +21,8 @@ jobs:
         run: |
           printf '%s\n' 'ci-placeholder' > secrets/postgres_password.txt
           printf '%s\n' 'ci-placeholder' > secrets/replication_password.txt
+          printf '%s\n' 'ci-placeholder' > secrets/webapp_password.txt
+          ./scripts/init-secrets.sh
 
       - name: ShellCheck
         run: shellcheck scripts/*.sh pgbouncer/entrypoint.sh
@@ -35,9 +37,13 @@ jobs:
             --add-host pg-node1:127.0.0.1 \
             --add-host pg-node2:127.0.0.1 \
             --add-host pg-node3:127.0.0.1 \
+            -v "$PWD/secrets/patroni-tls/ca.crt:/run/secrets/patroni_ca:ro" \
             -v "$PWD/haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro" \
             haproxy:3.2-alpine \
             haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg
 
+      - name: Validate NGINX configuration
+        run: ./scripts/check-nginx.sh
+
       - name: Build PostgreSQL image
-        run: docker compose build pg-node1
+        run: docker compose build pg-node1 etcd-bootstrap

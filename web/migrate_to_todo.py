@@ -1,4 +1,4 @@
-"""One-time migration. Stop web, then run this using its image and password secret."""
+"""One-time migration. Stop web, then run with the web-init image and administrator password secret."""
 from contextlib import closing
 from pathlib import Path
 import psycopg2

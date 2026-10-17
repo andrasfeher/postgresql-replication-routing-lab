@@ -1,7 +1,25 @@
 services:
+  web-init:
+    build: ./web
+    command: ["python3", "init_db.py"]
+    depends_on:
+      haproxy:
+        condition: service_started
+    environment:
+      PGHOST: haproxy
+      PGPORT: "5432"
+    secrets:
+      - postgres_password
+      - webapp_password
+    networks:
+      - pgnet
+    restart: "no"
+
   web:
     build: ./web
     depends_on:
+      web-init:
+        condition: service_completed_successfully
       haproxy:
         condition: service_started
       mailpit:
@@ -10,17 +28,18 @@ services:
       PGHOST: haproxy
       PGPORT: "5432"
       PGDATABASE: todo
-      PGUSER: postgres
+      PGUSER: webapp
       SMTP_HOST: mailpit
       SMTP_PORT: "1025"
       MAIL_FROM: todo@example.test
       APP_BASE_URL: http://127.0.0.1:8080
+      TRUSTED_PROXY_IP: 172.30.82.20
     secrets:
-      - postgres_password
-    ports:
-      - "127.0.0.1:8080:8080"
+      - webapp_password
     networks:
-      - pgnet
+      pgnet:
+      web_frontend:
+        ipv4_address: 172.30.82.10
     restart: unless-stopped
 
   mailpit:
@@ -29,4 +48,33 @@ services:
       - "127.0.0.1:8025:8025"
     networks:
       - pgnet
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:stable-alpine
+    user: "101:101"
+    entrypoint: [nginx, -g, "daemon off;"]
+    depends_on:
+      web:
+        condition: service_started
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/proxy.conf:/etc/nginx/proxy.conf:ro
+    ports:
+      - "127.0.0.1:8080:8080"
+    networks:
+      web_edge:
+      web_frontend:
+        ipv4_address: 172.30.82.20
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, "http://127.0.0.1:8080/login"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
     restart: unless-stopped

@@ -12,8 +12,12 @@ services:
         condition: service_healthy
     volumes:
       - ./haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    secrets:
+      - patroni_ca
     ports:
       - "127.0.0.1:8404:8404"
     networks:
-      - pgnet
+      pgnet:
+      patroni_mgmt:
+        ipv4_address: 172.30.80.20
     restart: unless-stopped

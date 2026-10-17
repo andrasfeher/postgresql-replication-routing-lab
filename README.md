@@ -59,7 +59,7 @@ PostgreSQL node names are deliberately **role-neutral**. Patroni determines whic
 | `127.0.0.1:5433` | PgBouncer-2 → HAProxy `:5433` → healthy Patroni replicas | Read-only |
 | `127.0.0.1:5435` | Standalone `pg-subscriber` PostgreSQL instance | Logical replication target |
 | `127.0.0.1:8404/stats` | HAProxy statistics listener | Monitoring |
-| `127.0.0.1:8080` | Web server → HAProxy `:5432` → current Patroni primary | Task list app |
+| `127.0.0.1:8080` | NGINX → Python app → HAProxy `:5432` → current Patroni primary | Task list app |
 
 There is deliberately **no port `5434` / PgBouncer-3 endpoint**. Clients address roles rather than physical nodes, so the topology remains valid after failover.
 
@@ -141,16 +141,18 @@ make verify
 Open http://127.0.0.1:8080 after `make up`, or start the web service explicitly:
 
 ```bash
-docker compose up -d --build web
+docker compose up -d --build nginx
 curl --fail http://127.0.0.1:8080/
 ```
 
 The index page lets you add tasks, edit their titles, mark them completed (then
 click **Save**), and delete them. Tasks are stored in `public.tasks` in the
-`todo` database; the app creates the database and table automatically on first use.
+`todo` database. The `web-init` service initializes the database and schema before
+the web service starts.
 The existing PostgreSQL volumes persist tasks across web container restarts.
 
-The app uses the existing password secret and HAProxy's primary endpoint for every
+The app uses the restricted `webapp` login, its own `webapp_password` secret,
+and HAProxy's primary endpoint for every
 request, so new connections follow primary changes. During database outages it
 returns HTTP 503. If a save is interrupted, check the list before submitting again.
 Unauthenticated visitors are redirected to `/login`, which links to `/register`.
@@ -185,14 +187,15 @@ times, and the identity sequence, verifies the copy, and removes the old table:
 
 ```bash
 docker compose stop web
-docker compose run --rm --no-deps -T web python3 < web/migrate_to_todo.py
+docker compose run --rm --no-deps -T web-init python3 < web/migrate_to_todo.py
 docker compose up -d --no-deps --build web
+docker compose up -d --no-deps nginx
 ```
 
 Run the live smoke test (creates and deletes its own temporary account and task):
 
 ```bash
-docker compose exec -T web python3 < web/tests/smoke.py
+docker compose exec -T -e APP_TEST_URL=http://nginx:8080 web python3 < web/tests/smoke.py
 ```
 
 ### SQL connections
@@ -390,3 +393,130 @@ This repository is designed for a **local lab**:
 - no real credentials should ever be committed.
 
 See [SECURITY.md](SECURITY.md) before exposing any component outside your workstation.
+
+### Web application database permissions and backups
+
+`make secrets` generates `secrets/webapp_password.txt`. Only `web-init` receives
+both administrator and application credentials; `web` receives only the application
+credential. The `webapp` role has SELECT, INSERT, UPDATE, and DELETE on public
+tables in `todo`, plus schema USAGE, database CONNECT, and sequence USAGE.
+It cannot create schemas, permanent or temporary tables, alter/drop existing
+tables, or truncate them. Objects remain owned by `postgres`. Default grants cover
+future public tables and sequences created by `postgres`; migrations by another
+owner must configure that owner's default privileges separately.
+
+Schema changes belong in `web/schema.sql` and run through `web-init`, not request
+handlers. Initialization fails rather than deleting legacy tasks without owners.
+Revoking PUBLIC database TEMPORARY and schema CREATE also affects other roles
+that previously relied on those public privileges in `todo`.
+
+Create a backup including ownership, ACLs, default privileges, and role definitions:
+
+```bash
+./scripts/backup-todo.sh
+```
+
+The output is stored under ignored `.tmp/backups/`. `todo.dump` contains the
+complete database, including grants; `roles.sql` contains cluster role definitions
+and password verifiers. Keep both files private. Restore roles first, then use
+`pg_restore --create` as an administrator. On a target with existing roles, reconcile
+role creation statements first (especially the pre-existing `postgres` role).
+Do not use `--no-owner` or `--no-acl` if preserving permissions.
+
+### Secured Patroni management API
+
+Patroni listens only on its address in the internal `patroni_mgmt` Docker network
+(`172.30.80.0/24`). No management port is published. Web, Mailpit, PgBouncer,
+subscriber, and Ansible containers are not attached to this network. Database
+traffic still uses `pgnet`; PostgreSQL transport remains a separate TLS hardening item.
+Etcd now uses mutual TLS and a separate coordination network (see below).
+
+`make secrets` creates a local management CA, one server certificate per node,
+and `secrets/patroni_api_password.txt`. Private keys and API credentials are ignored
+by Git and Docker build contexts. The CA private key is never mounted in a
+container. Server certificates expire after 365 days; the CA expires after 10 years.
+For renewal, securely retain the CA, replace each node certificate/key pair using
+its matching management SAN, and recreate that node in a rolling maintenance
+operation. The generator preserves existing pairs and rejects invalid/expired
+certificates; it does not automatically rotate them.
+
+All API traffic uses HTTPS. HAProxy validates the CA and each node's hostname for
+health checks; PostgreSQL forwarding remains plain TCP. Patroni and patronictl
+verify certificates using the configured CA. Safe GET checks need no API password.
+Unsafe methods require Basic authentication with the `patroni-admin` account and
+an allowed source address. The allowlist includes the opt-in admin container
+(`172.30.80.30`) and registered cluster members; HAProxy (`172.30.80.20`) is excluded
+from unsafe calls. Loopback is listed for local tools, although the listener binds
+to the management interface. Administrative credentials are loaded from secrets.
+TLS client certificates are not required; access is controlled by server-verified
+TLS, Basic authentication for unsafe methods, the allowlist, and network isolation.
+
+Use the dedicated admin container (one at a time because its address is fixed):
+
+```bash
+docker compose --profile admin build patroni-admin
+docker compose --profile admin run --rm --no-deps patroni-admin list
+# Example maintenance command, only when a switchover is intended:
+# docker compose --profile admin run --rm --no-deps patroni-admin switchover
+```
+
+Verify authentication and certificate validation with:
+
+```bash
+docker compose --profile admin run --rm --no-deps -T \
+  --entrypoint /opt/patroni/bin/python patroni-admin - < test/security/patroni_admin.py
+```
+
+The test issues authenticated configuration reloads without changing configuration
+or leadership. Docker administrators remain trusted: they can attach containers to
+networks or read mounted secrets. The existing Ansible Docker socket access is
+therefore still a separate privileged administrative capability.
+
+### Secured etcd coordination
+
+Etcd client and peer listeners use mutual TLS on the dedicated internal
+`coordination` network. Patroni authenticates with its own client certificate and
+a password, with read/write permission only under `/service/postgres-lab/`.
+Read-only health and certificate-only root administration use separate identities.
+No etcd endpoint is attached to the application network or published on the host.
+
+See [etcd security and administration](docs/ETCD-SECURITY.md) for the access model,
+startup dependencies, administration commands, tests, certificate rotation, and
+migration/recovery record. Each Docker context now includes only explicitly
+allowlisted source files, excluding backups and secrets regardless of extension.
+
+### NGINX frontend
+
+The browser entry point remains <http://127.0.0.1:8080>. NGINX owns that published
+port and proxies to the internal Python service over `web_frontend`
+(`172.30.82.0/24`). Python has no host-published port. NGINX joins the internal frontend network and its own `web_edge` bridge
+for host port publishing, receives no database secrets, and cannot directly access database
+or coordination services. It runs as UID/GID 101 with a read-only filesystem,
+a temporary writable `/tmp`, no Linux capabilities, and no privilege escalation.
+
+NGINX buffers request bodies, caps them at 8 KiB, and applies header/body idle
+limits, upstream timeouts, per-client request and connection limits, and a global
+64-request connection limit. These are bounded-resource controls, not a promise
+that every request finishes within a fixed total duration. Upstream DNS is refreshed
+through Docker DNS so recreating the web container does not require restarting
+NGINX. Failed application requests are not automatically replayed.
+
+The Python backend independently caps active request threads at 64 and uses
+10-second socket idle timeouts. Client-IP headers are accepted only from NGINX's
+fixed `172.30.82.20` address; NGINX overwrites incoming forwarding headers.
+Access logs omit query strings, and NGINX error logging is disabled specifically
+for `/verify` to avoid exposing verification tokens in upstream error messages.
+
+This local configuration preserves HTTP. HTTPS termination, trusted browser
+certificates, and Secure session cookies remain a separate change.
+
+```bash
+docker compose exec -T web python3 < web/tests/http_server.py
+docker compose exec -T -e APP_TEST_URL=http://nginx:8080 web python3 < web/tests/smoke.py
+docker compose exec -T web python3 < test/security/nginx_proxy.py
+docker compose exec nginx nginx -t
+```
+
+`web/tests/smoke.py` defaults to direct localhost access when `APP_TEST_URL` is
+omitted. Set that variable as above to exercise the public proxy path from inside
+the web container. Verification emails continue using the unchanged browser URL.

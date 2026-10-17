@@ -1,5 +1,6 @@
 """Run against the live app: docker compose exec -T web python3 < web/tests/smoke.py."""
 import re
+import os
 import uuid
 import json
 import time
@@ -9,10 +10,10 @@ from pathlib import Path
 from contextlib import closing
 import psycopg2
 from urllib.error import HTTPError
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, urlopen
 
-BASE = 'http://127.0.0.1:8080'
+BASE = os.environ.get('APP_TEST_URL', 'http://127.0.0.1:8080')
 jar = CookieJar()
 opener = build_opener(HTTPCookieProcessor(jar))
 urlopen = opener.open
@@ -50,7 +51,7 @@ def verify_registration(page, address, expire_first=False):
     assert message['To'][0]['Address'] == address
     link = re.search(r'http://127.0.0.1:8080/verify\?token=[A-Za-z0-9_-]+', message['Text']).group(0)
     verification_token = link.split('token=')[1]
-    with closing(psycopg2.connect(password=Path('/run/secrets/postgres_password').read_text().strip())) as db:
+    with closing(psycopg2.connect(password=Path('/run/secrets/webapp_password').read_text().strip())) as db:
         with db:
             with db.cursor() as cursor:
                 cursor.execute('SELECT v.token_hash, u.email_verified FROM public.email_verifications v JOIN public.users u ON u.id=v.user_id WHERE u.email=%s', (address,))
@@ -58,7 +59,7 @@ def verify_registration(page, address, expire_first=False):
                 assert stored != verification_token and not verified
                 if expire_first:
                     cursor.execute("UPDATE public.email_verifications SET expires_at=now()-interval '1 second', created_at=now()-interval '2 minutes' WHERE user_id=(SELECT id FROM public.users WHERE email=%s)", (address,))
-    page = get(link.removeprefix(BASE))
+    page = get(urlsplit(link).path + '?' + urlsplit(link).query)
     fields = {'csrf_token': csrf(page), 'token': verification_token}
     if expire_first:
         post('/verify', fields, 400)
@@ -89,7 +90,7 @@ def run():
     page = verify_registration(page, email)
     assert 'Signed in as ' + email in page
     session = next(cookie.value for cookie in jar if cookie.name == 'session')
-    with closing(psycopg2.connect(password=Path('/run/secrets/postgres_password').read_text().strip())) as db:
+    with closing(psycopg2.connect(password=Path('/run/secrets/webapp_password').read_text().strip())) as db:
         with db.cursor() as cursor:
             cursor.execute("SELECT is_nullable FROM information_schema.columns WHERE table_schema='public' AND table_name='tasks' AND column_name='user_id'")
             assert cursor.fetchone()[0] == 'NO'
@@ -133,7 +134,7 @@ def run():
             post('/update', {'csrf_token': other_token, 'id': task_id, 'title': 'stolen'}, 404)
             post('/delete', {'csrf_token': other_token, 'id': task_id}, 404)
             # An explicitly supplied owner is ignored; ownership comes from the session.
-            with closing(psycopg2.connect(password=Path('/run/secrets/postgres_password').read_text().strip())) as db:
+            with closing(psycopg2.connect(password=Path('/run/secrets/webapp_password').read_text().strip())) as db:
                 with db.cursor() as cursor:
                     cursor.execute('SELECT id FROM public.users WHERE email = %s', (email,))
                     first_user_id = cursor.fetchone()[0]
@@ -160,7 +161,7 @@ def run():
     assert title.split()[0] not in get()
     post('/delete', {'csrf_token': token, 'id': task_id}, 404)
     print('PASS: add, update, complete, reopen, delete, persistence across requests, validation, CSRF, and HTML escaping')
-    with closing(psycopg2.connect(password=Path('/run/secrets/postgres_password').read_text().strip())) as db:
+    with closing(psycopg2.connect(password=Path('/run/secrets/webapp_password').read_text().strip())) as db:
         with db:
             with db.cursor() as cursor:
                 cursor.execute("UPDATE public.sessions SET expires_at = now() - interval '1 second' WHERE user_id = (SELECT id FROM public.users WHERE email = %s)", (email,))
@@ -183,7 +184,7 @@ try:
             time.sleep(0.2)
     run()
 finally:
-    with closing(psycopg2.connect(password=Path('/run/secrets/postgres_password').read_text().strip())) as db:
+    with closing(psycopg2.connect(password=Path('/run/secrets/webapp_password').read_text().strip())) as db:
         with db:
             with db.cursor() as cursor:
                 cursor.execute('DELETE FROM public.users WHERE email IN (%s, %s)', (email, other_email))

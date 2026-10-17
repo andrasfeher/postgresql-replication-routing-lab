@@ -24,8 +24,7 @@ docker compose exec -T pg-node3 \
     runuser -u postgres -- psql -XAtc "SELECT 'in_recovery=' || pg_is_in_recovery();"
 
 printf '\n== List of nodes under patroni control ==\n'
-docker compose exec -T pg-node1 \
-    patronictl -c /etc/patroni/patroni.yml list
+docker compose --profile admin run --rm --no-deps patroni-admin list
 
 printf '\n== Read/write endpoint (:5432 via PgBouncer -> HAProxy -> node1) ==\n'
 PGPASSWORD="$PASSWORD" psql -X -h 127.0.0.1 -p 5432 -U postgres -d postgres -Atc \

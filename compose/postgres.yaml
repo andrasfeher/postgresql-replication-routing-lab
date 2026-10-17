@@ -9,6 +9,8 @@ x-postgres-common: &postgres-common
   networks:
     - pgnet
   depends_on:
+    etcd-bootstrap:
+      condition: service_completed_successfully
     etcd1:
       condition: service_started
     etcd2:
@@ -18,7 +20,7 @@ x-postgres-common: &postgres-common
   healthcheck:
     test:
       - CMD-SHELL
-      - curl -fsS http://localhost:8008/health >/dev/null || exit 1
+      - curl -fsS --cacert /run/patroni/ca.crt "https://$${HOSTNAME}-mgmt:8008/health" >/dev/null || exit 1
     interval: 5s
     timeout: 3s
     retries: 20
@@ -29,6 +31,29 @@ services:
     <<: *postgres-common
     container_name: pg-node1
     hostname: pg-node1
+    networks:
+      pgnet:
+      patroni_mgmt:
+        ipv4_address: 172.30.80.11
+        aliases: [pg-node1-mgmt]
+      coordination:
+        ipv4_address: 172.30.81.21
+        aliases: [pg-node1-dcs]
+    secrets:
+      - postgres_password
+      - replication_password
+      - patroni_api_password
+      - patroni_ca
+      - etcd_client_ca
+      - etcd_patroni_password
+      - source: etcd_patroni1_crt
+        target: etcd_client_cert
+      - source: etcd_patroni1_key
+        target: etcd_client_key
+      - source: patroni_node1_cert
+        target: patroni_cert
+      - source: patroni_node1_key
+        target: patroni_key
     volumes:
       - pg_node1_data:/var/lib/postgresql
       - ./patroni/patroni-node1.yml:/etc/patroni/patroni.yml:ro
@@ -37,6 +62,29 @@ services:
     <<: *postgres-common
     container_name: pg-node2
     hostname: pg-node2
+    networks:
+      pgnet:
+      patroni_mgmt:
+        ipv4_address: 172.30.80.12
+        aliases: [pg-node2-mgmt]
+      coordination:
+        ipv4_address: 172.30.81.22
+        aliases: [pg-node2-dcs]
+    secrets:
+      - postgres_password
+      - replication_password
+      - patroni_api_password
+      - patroni_ca
+      - etcd_client_ca
+      - etcd_patroni_password
+      - source: etcd_patroni2_crt
+        target: etcd_client_cert
+      - source: etcd_patroni2_key
+        target: etcd_client_key
+      - source: patroni_node2_cert
+        target: patroni_cert
+      - source: patroni_node2_key
+        target: patroni_key
     volumes:
       - pg_node2_data:/var/lib/postgresql
       - ./patroni/patroni-node2.yml:/etc/patroni/patroni.yml:ro
@@ -45,6 +93,29 @@ services:
     <<: *postgres-common
     container_name: pg-node3
     hostname: pg-node3
+    networks:
+      pgnet:
+      patroni_mgmt:
+        ipv4_address: 172.30.80.13
+        aliases: [pg-node3-mgmt]
+      coordination:
+        ipv4_address: 172.30.81.23
+        aliases: [pg-node3-dcs]
+    secrets:
+      - postgres_password
+      - replication_password
+      - patroni_api_password
+      - patroni_ca
+      - etcd_client_ca
+      - etcd_patroni_password
+      - source: etcd_patroni3_crt
+        target: etcd_client_cert
+      - source: etcd_patroni3_key
+        target: etcd_client_key
+      - source: patroni_node3_cert
+        target: patroni_cert
+      - source: patroni_node3_key
+        target: patroni_key
     volumes:
       - pg_node3_data:/var/lib/postgresql
       - ./patroni/patroni-node3.yml:/etc/patroni/patroni.yml:ro

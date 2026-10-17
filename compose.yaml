@@ -13,6 +13,8 @@ include:
     project_directory: .
   - path: ./compose/compose.ansible.yaml
     project_directory: .
+  - path: ./compose/admin.yaml
+    project_directory: .
   - path: ./compose/web.yaml
     project_directory: .
 
@@ -20,6 +22,23 @@ include:
 networks:
   pgnet:
     driver: bridge
+  web_edge:
+    driver: bridge
+  web_frontend:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.30.82.0/24
+  coordination:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.30.81.0/24
+  patroni_mgmt:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.30.80.0/24
 
 volumes:
   etcd1_data:
@@ -35,3 +54,78 @@ secrets:
     file: ./secrets/postgres_password.txt
   replication_password:
     file: ./secrets/replication_password.txt
+
+  webapp_password:
+    file: ./secrets/webapp_password.txt
+
+  patroni_api_password:
+    file: ./secrets/patroni_api_password.txt
+  patroni_ca:
+    file: ./secrets/patroni-tls/ca.crt
+  patroni_node1_cert:
+    file: ./secrets/patroni-tls/pg-node1.crt
+  patroni_node1_key:
+    file: ./secrets/patroni-tls/pg-node1.key
+  patroni_node2_cert:
+    file: ./secrets/patroni-tls/pg-node2.crt
+  patroni_node2_key:
+    file: ./secrets/patroni-tls/pg-node2.key
+  patroni_node3_cert:
+    file: ./secrets/patroni-tls/pg-node3.crt
+  patroni_node3_key:
+    file: ./secrets/patroni-tls/pg-node3.key
+
+  etcd_patroni_password:
+    file: ./secrets/etcd_patroni_password.txt
+  etcd_client_ca:
+    file: ./secrets/etcd-tls/client-ca.crt
+  etcd_peer_ca:
+    file: ./secrets/etcd-tls/peer-ca.crt
+  etcd_root_cert:
+    file: ./secrets/etcd-tls/root.crt
+  etcd_root_key:
+    file: ./secrets/etcd-tls/root.key
+  etcd_health_cert:
+    file: ./secrets/etcd-tls/health.crt
+  etcd_health_key:
+    file: ./secrets/etcd-tls/health.key
+  etcd_patroni_admin_cert:
+    file: ./secrets/etcd-tls/patroni-admin.crt
+  etcd_patroni_admin_key:
+    file: ./secrets/etcd-tls/patroni-admin.key
+  etcd1_server_crt:
+    file: ./secrets/etcd-tls/etcd1-server.crt
+  etcd1_server_key:
+    file: ./secrets/etcd-tls/etcd1-server.key
+  etcd1_peer_crt:
+    file: ./secrets/etcd-tls/etcd1-peer.crt
+  etcd1_peer_key:
+    file: ./secrets/etcd-tls/etcd1-peer.key
+  etcd2_server_crt:
+    file: ./secrets/etcd-tls/etcd2-server.crt
+  etcd2_server_key:
+    file: ./secrets/etcd-tls/etcd2-server.key
+  etcd2_peer_crt:
+    file: ./secrets/etcd-tls/etcd2-peer.crt
+  etcd2_peer_key:
+    file: ./secrets/etcd-tls/etcd2-peer.key
+  etcd3_server_crt:
+    file: ./secrets/etcd-tls/etcd3-server.crt
+  etcd3_server_key:
+    file: ./secrets/etcd-tls/etcd3-server.key
+  etcd3_peer_crt:
+    file: ./secrets/etcd-tls/etcd3-peer.crt
+  etcd3_peer_key:
+    file: ./secrets/etcd-tls/etcd3-peer.key
+  etcd_patroni1_crt:
+    file: ./secrets/etcd-tls/patroni1.crt
+  etcd_patroni1_key:
+    file: ./secrets/etcd-tls/patroni1.key
+  etcd_patroni2_crt:
+    file: ./secrets/etcd-tls/patroni2.crt
+  etcd_patroni2_key:
+    file: ./secrets/etcd-tls/patroni2.key
+  etcd_patroni3_crt:
+    file: ./secrets/etcd-tls/patroni3.crt
+  etcd_patroni3_key:
+    file: ./secrets/etcd-tls/patroni3.key

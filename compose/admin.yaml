@@ -1,0 +1,25 @@
+services:
+  patroni-admin:
+    profiles: [admin]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    entrypoint: [/bin/bash, /usr/local/bin/patroni-admin.sh]
+    command: [list]
+    volumes:
+      - ./scripts/patroni-admin.sh:/usr/local/bin/patroni-admin.sh:ro
+      - ./patroni/admin.yml:/etc/patroni/admin.yml:ro
+    secrets:
+      - patroni_api_password
+      - patroni_ca
+      - etcd_client_ca
+      - etcd_patroni_password
+      - source: etcd_patroni_admin_cert
+        target: etcd_client_cert
+      - source: etcd_patroni_admin_key
+        target: etcd_client_key
+    networks:
+      coordination:
+        ipv4_address: 172.30.81.30
+      patroni_mgmt:
+        ipv4_address: 172.30.80.30

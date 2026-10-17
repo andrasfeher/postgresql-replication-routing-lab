@@ -1,0 +1,11 @@
+scope: postgres-lab
+namespace: /service/
+etcd3:
+  protocol: https
+  cacert: /run/secrets/etcd_client_ca
+  cert: /run/secrets/etcd_client_cert
+  key: /run/secrets/etcd_client_key
+  hosts: [etcd1-dcs:2379, etcd2-dcs:2379, etcd3-dcs:2379]
+ctl:
+  cacert: /run/secrets/patroni_ca
+  insecure: false

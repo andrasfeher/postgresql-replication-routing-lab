@@ -5,7 +5,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY app.py .
+COPY app.py init_db.py schema.sql ./
 USER nobody
 EXPOSE 8080
 CMD ["python3", "-u", "app.py"]
