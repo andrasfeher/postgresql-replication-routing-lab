@@ -1,8 +1,8 @@
 # PostgreSQL 18 HA, Replication, Routing & Connection Pooling Lab
 
-A portfolio-grade local lab for building a small PostgreSQL high-availability platform from first principles with **PostgreSQL 18**, **Patroni**, **etcd**, **physical streaming replication**, **HAProxy**, **PgBouncer**, **Docker Compose**, and **Docker secrets**.
+An educational local lab for building a small PostgreSQL high-availability platform from first principles with **PostgreSQL 18**, **Patroni**, **etcd**, **physical streaming replication**, **HAProxy**, **PgBouncer**, **NGINX**, a Python task-list application, **Docker Compose**, and **Docker secrets**.
 
-The project exposes separate client endpoints for read/write and read-only traffic while keeping PostgreSQL itself private to the Docker network.
+The project exposes localhost-only endpoints for the web app and database clients. NGINX fronts the Python application; PgBouncer provides separate read/write and replica endpoints. Patroni administration and etcd coordination use separate internal networks.
 
 > **Current architecture:** PostgreSQL HA is managed by Patroni. Patroni owns initialization, replication lifecycle, role management, leader election and promotion. A three-member etcd cluster provides the DCS, while HAProxy discovers primary/replica roles through Patroni's REST API.
 
@@ -12,10 +12,12 @@ The topology contains three role-neutral PostgreSQL services: **`pg-node1`**, **
 
 - PostgreSQL 18 on Debian with three role-neutral database nodes
 - Patroni-managed PostgreSQL initialization, replication lifecycle, leader election and promotion
-- Three-member etcd v3 distributed configuration store
+- Three-member etcd v3 store with scoped authentication and mutual TLS for clients and peers
 - Physical streaming replication between PostgreSQL members
 - Standalone PostgreSQL 18 subscriber for logical replication experiments
-- Patroni REST API health and role discovery
+- HTTPS Patroni API with authentication and an allowlist for unsafe operations
+- NGINX reverse proxy with request limits and an internal Python backend
+- Per-user task lists, email verification through Mailpit, and a restricted `webapp` database role
 - HAProxy routing designed around Patroni role-aware health checks
 - PgBouncer transaction pooling
 - SCRAM-SHA-256 authentication
@@ -28,28 +30,28 @@ The topology contains three role-neutral PostgreSQL services: **`pg-node1`**, **
 
 ```mermaid
 flowchart TB
-    C[Client / psql]
-
-    C -->|127.0.0.1:5432 RW| P1[PgBouncer-1 RW\n:6432]
-    C -->|127.0.0.1:5433 RO| P2[PgBouncer-2 RO\n:6432]
-
-    P1 -->|HAProxy :5432| H[HAProxy\nPatroni role-aware routing]
-    P2 -->|HAProxy :5433| H
-
-    H --> N1[pg-node1\nPatroni + PostgreSQL 18]
-    H --> N2[pg-node2\nPatroni + PostgreSQL 18]
-    H --> N3[pg-node3\nPatroni + PostgreSQL 18]
-
-    N1 --> E[etcd DCS]
+    B[Browser] -->|localhost:8080 HTTP| X[NGINX]
+    X -->|internal web frontend| W[Python task app]
+    W -->|webapp role| H[HAProxy]
+    W --> M[Mailpit verification inbox]
+    C[SQL client] -->|localhost:5432 RW| P1[PgBouncer RW]
+    C -->|localhost:5433 RO| P2[PgBouncer RO]
+    P1 --> H
+    P2 --> H
+    H --> N1[pg-node1]
+    H --> N2[pg-node2]
+    H --> N3[pg-node3]
+    H -.->|verified HTTPS role checks| A[Patroni APIs]
+    A --- N1
+    A --- N2
+    A --- N3
+    N1 -->|mutual TLS and scoped credentials| E[Three-member etcd cluster]
     N2 --> E
     N3 --> E
-
-    E --- E1[etcd1]
-    E --- E2[etcd2]
-    E --- E3[etcd3]
 ```
 
-PostgreSQL node names are deliberately **role-neutral**. Patroni determines which member is primary and which members are replicas. HAProxy can query Patroni's REST API on port `8008` to route new connections according to the current role.
+
+PostgreSQL node names are deliberately **role-neutral**. Patroni determines which member is primary and which members are replicas. HAProxy queries Patroni's HTTPS API on its internal management addresses at port `8008` to route new connections according to the current role.
 
 ### Client endpoints
 
@@ -59,9 +61,24 @@ PostgreSQL node names are deliberately **role-neutral**. Patroni determines whic
 | `127.0.0.1:5433` | PgBouncer-2 → HAProxy `:5433` → healthy Patroni replicas | Read-only |
 | `127.0.0.1:5435` | Standalone `pg-subscriber` PostgreSQL instance | Logical replication target |
 | `127.0.0.1:8404/stats` | HAProxy statistics listener | Monitoring |
+| `127.0.0.1:8025` | Mailpit inbox UI/API | Local verification email |
 | `127.0.0.1:8080` | NGINX → Python app → HAProxy `:5432` → current Patroni primary | Task list app |
 
 There is deliberately **no port `5434` / PgBouncer-3 endpoint**. Clients address roles rather than physical nodes, so the topology remains valid after failover.
+
+### Network boundaries
+
+| Network | Participants and purpose |
+| --- | --- |
+| `web_edge` | NGINX host-port publishing |
+| `web_frontend` (`172.30.82.0/24`, internal) | NGINX and Python proxy traffic |
+| `pgnet` | PostgreSQL, HAProxy, PgBouncer, web/init, Mailpit, subscriber, and Ansible |
+| `patroni_mgmt` (`172.30.80.0/24`, internal) | Patroni nodes, HAProxy health checks, and opt-in Patroni administration |
+| `coordination` (`172.30.81.0/24`, internal) | Etcd, Patroni nodes, scoped Patroni administration, and etcd bootstrap/admin tools |
+
+NGINX has no database secrets or database/coordination network membership.
+Management ports `8008`, `2379`, and `2380` are not published. The fixed internal
+subnets must not overlap other networks used by your Docker installation.
 
 ### Logical subscriber (first stage)
 
@@ -81,6 +98,9 @@ The result should be `f`: this is an independent writable server, not a physical
 
 | Component | Responsibility |
 |---|---|
+| NGINX | Public localhost web entry point, request buffering, limits, and proxying |
+| Python application | Authentication, email verification, and per-user task CRUD |
+| Mailpit | Captures development verification emails |
 | PostgreSQL 18 | Database engine, WAL generation and physical streaming replication |
 | Patroni | PostgreSQL lifecycle, cluster membership, leader election, promotion and role management |
 | etcd | Consensus-backed distributed configuration store used by Patroni |
@@ -92,7 +112,7 @@ A key design principle is separation of responsibilities: **PgBouncer manages co
 
 ## Prerequisites
 
-- Docker Engine with Docker Compose v2
+- Docker Engine or Docker Desktop with a Compose version supporting `include` and dependency completion conditions
 - `psql` client on the host for `scripts/verify.sh`
 - `openssl` for automatic secret generation
 - Optional: `make` and `shellcheck`
@@ -122,23 +142,40 @@ Without `make`:
 docker compose up -d --build
 ```
 
-Wait until the containers are healthy:
+On a fresh start, etcd initializes first, `etcd-bootstrap` establishes users,
+scoped roles and authentication, and Patroni starts the database cluster.
+`web-init` creates the `todo` schema and application grants before Python starts;
+NGINX then exposes the browser endpoint. The initialization jobs should finish
+with exit code 0 rather than remain running.
+
+Inspect service status:
 
 ```bash
-docker compose ps
+docker compose ps -a
 ```
 
 Then run the end-to-end verification:
 
 ```bash
+docker compose --profile admin build patroni-admin etcd-admin
 make verify
 ```
+
+Open the [task list](http://127.0.0.1:8080), register, then open the
+[Mailpit inbox](http://127.0.0.1:8025) to verify your email. Use the
+[HAProxy statistics page](http://127.0.0.1:8404/stats) to inspect routing.
+
+For an existing installation with plaintext etcd volumes, follow an intentional
+membership and TLS migration rather than applying fresh-start flags alone.
+See [etcd security and migration notes](docs/ETCD-SECURITY.md). Existing unowned
+legacy tasks also require an explicit ownership migration; initialization preserves
+them by failing rather than deleting them.
 
 ## Connect
 
 ### Web task list
 
-Open http://127.0.0.1:8080 after `make up`, or start the web service explicitly:
+Open [the task list](http://127.0.0.1:8080) after `make up`, or start the web frontend and its dependencies explicitly:
 
 ```bash
 docker compose up -d --build nginx
@@ -152,8 +189,7 @@ the web service starts.
 The existing PostgreSQL volumes persist tasks across web container restarts.
 
 The app uses the restricted `webapp` login, its own `webapp_password` secret,
-and HAProxy's primary endpoint for every
-request, so new connections follow primary changes. During database outages it
+and HAProxy's primary endpoint for every request, so new connections follow primary changes. During database outages it
 returns HTTP 503. If a save is interrupted, check the list before submitting again.
 Unauthenticated visitors are redirected to `/login`, which links to `/register`.
 Register with an email address and a 12–128 character password. Email syntax is
@@ -177,20 +213,15 @@ random session tokens are stored. Sessions expire after 24 hours and logout revo
 them. Cookies use HttpOnly and SameSite=Strict, and forms have CSRF protection.
 Each user has a private task list. Task reads, updates, and deletes are scoped to
 the authenticated user, and new tasks are assigned to that user on the server.
-`tasks.user_id` is required (`NOT NULL`) and references `users.id`. The schema
-upgrade removes legacy tasks that have no owner before enforcing the constraint. The app is served
+`tasks.user_id` is required (`NOT NULL`) and references `users.id`. Schema initialization fails if legacy tasks have no owner; an administrator must
+assign ownership explicitly before enforcing the constraint. The app is served
 on localhost over HTTP for this lab.
 
-For an older installation that still has `postgres.public.todo_tasks`, migrate
-before rebuilding the web container. This preserves IDs, completion state, creation
-times, and the identity sequence, verifies the copy, and removes the old table:
-
-```bash
-docker compose stop web
-docker compose run --rm --no-deps -T web-init python3 < web/migrate_to_todo.py
-docker compose up -d --no-deps --build web
-docker compose up -d --no-deps nginx
-```
+The historical `web/migrate_to_todo.py` script copies the older
+`postgres.public.todo_tasks` table into `todo.public.tasks`. It does not assign
+user ownership and is not a complete migration to the authenticated application.
+Back up first and design an explicit ownership migration before running it;
+`web-init` will reject unowned tasks.
 
 Run the live smoke test (creates and deletes its own temporary account and task):
 
@@ -231,8 +262,7 @@ Each node receives a node-specific configuration from `patroni/`, mounted as `/e
 Inspect cluster membership and roles with:
 
 ```bash
-docker exec -it pg-node1 \
-  patronictl -c /etc/patroni/patroni.yml list
+docker compose --profile admin run --rm --no-deps patroni-admin list
 ```
 
 Do not assume `pg-node1` will always be primary. To inspect a node directly:
@@ -303,48 +333,36 @@ Stop containers but keep PostgreSQL data/configuration:
 make down
 ```
 
-Delete the containers **and all PostgreSQL lab data**:
+Delete containers and **all PostgreSQL and etcd named-volume data**, including persisted etcd authentication state:
 
 ```bash
 make reset
 ```
 
+Local secrets, certificate authorities, and `.tmp/backups/` are retained.
+A subsequent startup bootstraps fresh volumes using those existing secrets.
+
 ## Repository layout
 
 ```text
 .
-├── .github/workflows/ci.yml
-├── Dockerfile
-├── Makefile
-├── compose.yaml
-├── compose/
-│   ├── etcd.yaml
-│   ├── haproxy.yaml
-│   ├── pgbouncer.yaml
-│   ├── postgres.yaml
-│   └── subscriber.yaml
-├── docs/
-│   ├── ARCHITECTURE.md
-│   ├── PORTFOLIO.md
-│   └── TROUBLESHOOTING.md
-├── haproxy/
-│   └── haproxy.cfg
-├── patroni/
-│   ├── patroni-node1.yml
-│   ├── patroni-node2.yml
-│   └── patroni-node3.yml
-├── pgbouncer/
-│   ├── entrypoint.sh
-│   ├── pgbouncer-1.ini
-│   └── pgbouncer-2.ini
-├── scripts/
-│   ├── check.sh
-│   ├── init-secrets.sh
-│   ├── patroni-entrypoint.sh
-│   └── verify.sh
-└── secrets/
-    ├── postgres_password.example
-    └── replication_password.example
+├── compose.yaml               # Networks, volumes, secrets, and included services
+├── compose/                   # Database, web/NGINX, coordination, and admin services
+├── Dockerfile                 # PostgreSQL/Patroni image
+├── web/                       # Python app, administrator initialization, schema, tests
+├── nginx/                     # Reverse proxy configuration
+├── patroni/                   # Per-node API/DCS configuration and admin settings
+├── etcd/                      # Administrative image and authentication bootstrap
+├── haproxy/                   # Role-aware database routing
+├── pgbouncer/                 # RW/RO pooling configuration and secret-based startup
+├── ansible/                   # Docker-connected administrative controller
+├── scripts/                   # Secrets/PKI generation, backup, and validation tools
+├── test/                      # Workload and targeted security checks
+├── docs/                      # Architecture, troubleshooting, and etcd operations
+├── secrets/                   # Examples plus ignored local credentials and PKI
+├── .tmp/backups/              # Ignored local database/role dumps and etcd snapshots
+├── vulnerabilities.md         # Open and remediated findings with verification evidence
+└── SECURITY.md                # Security boundaries and remaining hardening work
 ```
 
 ## Design notes and limitations
@@ -384,15 +402,23 @@ Useful Patroni HA exercises include:
 
 ## Security
 
-This repository is designed for a **local lab**:
+This repository is designed for a **local lab**. Implemented controls include:
 
-- database and stats ports are bound to `127.0.0.1` by default;
-- PostgreSQL and replication passwords are Docker secrets stored in ignored local files;
-- Patroni configuration files contain no real passwords;
-- generated PgBouncer authentication data is created inside the container at startup;
-- no real credentials should ever be committed.
+- localhost-only published ports and separate frontend, management, and coordination networks;
+- a restricted web application role, with administrator-only schema initialization;
+- HTTPS Patroni management with unsafe-operation authentication and an allowlist;
+- etcd mutual TLS, scoped permissions, and separate administrative identities;
+- an unprivileged NGINX proxy and bounded Python request handling;
+- ignored local credentials/private keys and source-allowlisted Docker build contexts.
 
-See [SECURITY.md](SECURITY.md) before exposing any component outside your workstation.
+The browser endpoint and PostgreSQL traffic still lack enforced TLS. Mailpit's
+inbox has no configured authentication, and the default Ansible service retains
+Docker socket access. Account enumeration and dependency/image assurance also
+remain open hardening items. Certificate renewal is an operational responsibility.
+
+See [SECURITY.md](SECURITY.md) for boundaries and
+[vulnerabilities.md](vulnerabilities.md) for the current status, evidence, and
+remaining remediation priorities.
 
 ### Web application database permissions and backups
 
@@ -489,9 +515,9 @@ allowlisted source files, excluding backups and secrets regardless of extension.
 
 The browser entry point remains <http://127.0.0.1:8080>. NGINX owns that published
 port and proxies to the internal Python service over `web_frontend`
-(`172.30.82.0/24`). Python has no host-published port. NGINX joins the internal frontend network and its own `web_edge` bridge
-for host port publishing, receives no database secrets, and cannot directly access database
-or coordination services. It runs as UID/GID 101 with a read-only filesystem,
+(`172.30.82.0/24`). Python has no host-published port. NGINX joins the internal
+frontend network and its own `web_edge` bridge for host port publishing, receives
+no database secrets, and cannot directly access database or coordination services. It runs as UID/GID 101 with a read-only filesystem,
 a temporary writable `/tmp`, no Linux capabilities, and no privilege escalation.
 
 NGINX buffers request bodies, caps them at 8 KiB, and applies header/body idle
@@ -520,3 +546,26 @@ docker compose exec nginx nginx -t
 `web/tests/smoke.py` defaults to direct localhost access when `APP_TEST_URL` is
 omitted. Set that variable as above to exercise the public proxy path from inside
 the web container. Verification emails continue using the unchanged browser URL.
+
+## Validation commands
+
+Run configuration validation without restarting the running database cluster:
+
+```bash
+make check
+docker compose exec -T web python3 < web/tests/permissions.py
+docker compose exec -T web python3 < web/tests/http_server.py
+docker compose exec -T -e APP_TEST_URL=http://nginx:8080 web python3 < web/tests/smoke.py
+docker compose exec -T web python3 < test/security/nginx_proxy.py
+docker compose exec -T pg-node1 python3 < test/security/etcd_client.py
+docker compose exec -T web python3 < test/security/etcd_isolation.py
+```
+
+`make check` runs shell lint when available and validates Compose, HAProxy, and
+NGINX configuration. The application smoke test creates temporary accounts/tasks
+and captures verification emails in Mailpit; it cleans up its own database data.
+The etcd client test creates and deletes a temporary key in the allowed namespace.
+See the Patroni section above for its authenticated reload test, and
+[etcd operations](docs/ETCD-SECURITY.md) for peer-certificate verification and
+root administration. These are targeted checks rather than a penetration test or
+dependency vulnerability scan.
