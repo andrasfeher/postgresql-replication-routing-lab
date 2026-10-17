@@ -4,15 +4,29 @@ services:
     depends_on:
       haproxy:
         condition: service_started
+      mailpit:
+        condition: service_started
     environment:
       PGHOST: haproxy
       PGPORT: "5432"
       PGDATABASE: todo
       PGUSER: postgres
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      MAIL_FROM: todo@example.test
+      APP_BASE_URL: http://127.0.0.1:8080
     secrets:
       - postgres_password
     ports:
       - "127.0.0.1:8080:8080"
+    networks:
+      - pgnet
+    restart: unless-stopped
+
+  mailpit:
+    image: axllent/mailpit:v1.31.6
+    ports:
+      - "127.0.0.1:8025:8025"
     networks:
       - pgnet
     restart: unless-stopped

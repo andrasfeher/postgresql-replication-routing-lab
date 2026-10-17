@@ -153,7 +153,31 @@ The existing PostgreSQL volumes persist tasks across web container restarts.
 The app uses the existing password secret and HAProxy's primary endpoint for every
 request, so new connections follow primary changes. During database outages it
 returns HTTP 503. If a save is interrupted, check the list before submitting again.
-This is a local lab app with a shared task list and no user accounts.
+Unauthenticated visitors are redirected to `/login`, which links to `/register`.
+Register with an email address and a 12–128 character password. Email syntax is
+validated on the server, addresses are normalized to lowercase, and duplicates
+are rejected. Registration sends a verification link and leaves the account
+inactive until the user confirms the link. Links expire after one hour and can
+only be used once; visiting a link displays a confirmation button so email link
+scanners cannot activate accounts automatically.
+
+For this local lab, emails are captured by Mailpit rather than delivered to real
+mailboxes. Open [the local inbox](http://127.0.0.1:8025), open your verification
+email, follow its link, and click **Verify email**, then log in. If a link expires,
+log in with your email and password to send another link (at most once per minute).
+Existing accounts must verify too; their tasks and passwords are retained.
+Mailpit is configured in `compose/web.yaml`; SMTP traffic stays on `pgnet`.
+
+Authentication data lives in `todo.public.users`, `todo.public.sessions`, and
+`todo.public.email_verifications`. Verification tokens are stored as hashes.
+Passwords use salted PBKDF2-SHA256 hashes (600,000 iterations); only hashes of
+random session tokens are stored. Sessions expire after 24 hours and logout revokes
+them. Cookies use HttpOnly and SameSite=Strict, and forms have CSRF protection.
+Each user has a private task list. Task reads, updates, and deletes are scoped to
+the authenticated user, and new tasks are assigned to that user on the server.
+`tasks.user_id` is required (`NOT NULL`) and references `users.id`. The schema
+upgrade removes legacy tasks that have no owner before enforcing the constraint. The app is served
+on localhost over HTTP for this lab.
 
 For an older installation that still has `postgres.public.todo_tasks`, migrate
 before rebuilding the web container. This preserves IDs, completion state, creation
@@ -165,7 +189,7 @@ docker compose run --rm --no-deps -T web python3 < web/migrate_to_todo.py
 docker compose up -d --no-deps --build web
 ```
 
-Run the live smoke test (creates and deletes its own temporary task):
+Run the live smoke test (creates and deletes its own temporary account and task):
 
 ```bash
 docker compose exec -T web python3 < web/tests/smoke.py
