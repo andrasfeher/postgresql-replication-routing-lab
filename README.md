@@ -59,6 +59,7 @@ PostgreSQL node names are deliberately **role-neutral**. Patroni determines whic
 | `127.0.0.1:5433` | PgBouncer-2 → HAProxy `:5433` → healthy Patroni replicas | Read-only |
 | `127.0.0.1:5435` | Standalone `pg-subscriber` PostgreSQL instance | Logical replication target |
 | `127.0.0.1:8404/stats` | HAProxy statistics listener | Monitoring |
+| `127.0.0.1:8080` | Web server → HAProxy `:5432` → current Patroni primary | PostgreSQL version page |
 
 There is deliberately **no port `5434` / PgBouncer-3 endpoint**. Clients address roles rather than physical nodes, so the topology remains valid after failover.
 
@@ -134,6 +135,22 @@ make verify
 ```
 
 ## Connect
+
+### Web version page
+
+Open http://127.0.0.1:8080 after `make up`, or start the web service explicitly:
+
+```bash
+docker compose up -d --build web
+curl --fail http://127.0.0.1:8080/
+```
+
+The index page queries `SELECT version(), pg_is_in_recovery()` through HAProxy's
+primary endpoint using the existing PostgreSQL password secret. Each refresh opens
+a new database connection so it follows primary changes. While the primary is
+unavailable (including during failover), the page returns HTTP 503; refresh to retry.
+
+### SQL connections
 
 The generated PostgreSQL password is stored locally in `secrets/postgres_password.txt` and is excluded from Git.
 

@@ -1,0 +1,18 @@
+services:
+  web:
+    build: ./web
+    depends_on:
+      haproxy:
+        condition: service_started
+    environment:
+      PGHOST: haproxy
+      PGPORT: "5432"
+      PGDATABASE: postgres
+      PGUSER: postgres
+    secrets:
+      - postgres_password
+    ports:
+      - "127.0.0.1:8080:8080"
+    networks:
+      - pgnet
+    restart: unless-stopped
