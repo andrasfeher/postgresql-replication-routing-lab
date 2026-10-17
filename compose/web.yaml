@@ -7,7 +7,7 @@ services:
     environment:
       PGHOST: haproxy
       PGPORT: "5432"
-      PGDATABASE: postgres
+      PGDATABASE: todo
       PGUSER: postgres
     secrets:
       - postgres_password

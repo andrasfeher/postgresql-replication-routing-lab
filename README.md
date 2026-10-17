@@ -59,7 +59,7 @@ PostgreSQL node names are deliberately **role-neutral**. Patroni determines whic
 | `127.0.0.1:5433` | PgBouncer-2 → HAProxy `:5433` → healthy Patroni replicas | Read-only |
 | `127.0.0.1:5435` | Standalone `pg-subscriber` PostgreSQL instance | Logical replication target |
 | `127.0.0.1:8404/stats` | HAProxy statistics listener | Monitoring |
-| `127.0.0.1:8080` | Web server → HAProxy `:5432` → current Patroni primary | PostgreSQL version page |
+| `127.0.0.1:8080` | Web server → HAProxy `:5432` → current Patroni primary | Task list app |
 
 There is deliberately **no port `5434` / PgBouncer-3 endpoint**. Clients address roles rather than physical nodes, so the topology remains valid after failover.
 
@@ -136,7 +136,7 @@ make verify
 
 ## Connect
 
-### Web version page
+### Web task list
 
 Open http://127.0.0.1:8080 after `make up`, or start the web service explicitly:
 
@@ -145,10 +145,31 @@ docker compose up -d --build web
 curl --fail http://127.0.0.1:8080/
 ```
 
-The index page queries `SELECT version(), pg_is_in_recovery()` through HAProxy's
-primary endpoint using the existing PostgreSQL password secret. Each refresh opens
-a new database connection so it follows primary changes. While the primary is
-unavailable (including during failover), the page returns HTTP 503; refresh to retry.
+The index page lets you add tasks, edit their titles, mark them completed (then
+click **Save**), and delete them. Tasks are stored in `public.tasks` in the
+`todo` database; the app creates the database and table automatically on first use.
+The existing PostgreSQL volumes persist tasks across web container restarts.
+
+The app uses the existing password secret and HAProxy's primary endpoint for every
+request, so new connections follow primary changes. During database outages it
+returns HTTP 503. If a save is interrupted, check the list before submitting again.
+This is a local lab app with a shared task list and no user accounts.
+
+For an older installation that still has `postgres.public.todo_tasks`, migrate
+before rebuilding the web container. This preserves IDs, completion state, creation
+times, and the identity sequence, verifies the copy, and removes the old table:
+
+```bash
+docker compose stop web
+docker compose run --rm --no-deps -T web python3 < web/migrate_to_todo.py
+docker compose up -d --no-deps --build web
+```
+
+Run the live smoke test (creates and deletes its own temporary task):
+
+```bash
+docker compose exec -T web python3 < web/tests/smoke.py
+```
 
 ### SQL connections
 
