@@ -29,7 +29,7 @@ def connect():
     return psycopg2.connect(
         user='webapp', dbname='todo',
         password=Path('/run/secrets/webapp_password').read_text().strip(),
-        connect_timeout=5, options='-c statement_timeout=5000',
+        connect_timeout=5,
     )
 
 

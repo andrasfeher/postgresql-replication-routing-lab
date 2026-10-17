@@ -84,7 +84,7 @@ Container images use mutable tags, including `nginx:stable-alpine`. Python packa
 
 **Current controls:**
 
-- The running web service uses `webapp` and receives only `webapp_password`.
+- The running web service uses `webapp` through the RW PgBouncer endpoint and receives only `webapp_password`. The RW pooler receives the same application secret for authentication; `webapp` has no pooler administration privileges.
 - `webapp` has SELECT, INSERT, UPDATE, and DELETE on public tables in `todo`, schema USAGE, database CONNECT, and required sequence USAGE.
 - It lacks superuser, database creation, role creation, replication, and RLS-bypass privileges. Database/schema creation and temporary table creation are denied.
 - Administrator-only initialization runs separately in `web-init`; tables remain owned by `postgres`. Default grants cover future public tables/sequences created by `postgres`.

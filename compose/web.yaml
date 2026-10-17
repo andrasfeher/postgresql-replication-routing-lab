@@ -20,13 +20,13 @@ services:
     depends_on:
       web-init:
         condition: service_completed_successfully
-      haproxy:
+      pgbouncer-1:
         condition: service_started
       mailpit:
         condition: service_started
     environment:
-      PGHOST: haproxy
-      PGPORT: "5432"
+      PGHOST: pgbouncer-1
+      PGPORT: "6432"
       PGDATABASE: todo
       PGUSER: webapp
       SMTP_HOST: mailpit

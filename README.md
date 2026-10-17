@@ -32,11 +32,11 @@ The topology contains three role-neutral PostgreSQL services: **`pg-node1`**, **
 flowchart TB
     B[Browser] -->|localhost:8080 HTTP| X[NGINX]
     X -->|internal web frontend| W[Python task app]
-    W -->|webapp role| H[HAProxy]
+    W -->|webapp role| P1
+    P1 --> H[HAProxy]
     W --> M[Mailpit verification inbox]
     C[SQL client] -->|localhost:5432 RW| P1[PgBouncer RW]
     C -->|localhost:5433 RO| P2[PgBouncer RO]
-    P1 --> H
     P2 --> H
     H --> N1[pg-node1]
     H --> N2[pg-node2]
@@ -62,7 +62,7 @@ PostgreSQL node names are deliberately **role-neutral**. Patroni determines whic
 | `127.0.0.1:5435` | Standalone `pg-subscriber` PostgreSQL instance | Logical replication target |
 | `127.0.0.1:8404/stats` | HAProxy statistics listener | Monitoring |
 | `127.0.0.1:8025` | Mailpit inbox UI/API | Local verification email |
-| `127.0.0.1:8080` | NGINX → Python app → HAProxy `:5432` → current Patroni primary | Task list app |
+| `127.0.0.1:8080` | NGINX → Python app → PgBouncer RW `:6432` → HAProxy `:5432` → current Patroni primary | Task list app |
 
 There is deliberately **no port `5434` / PgBouncer-3 endpoint**. Clients address roles rather than physical nodes, so the topology remains valid after failover.
 
@@ -189,7 +189,8 @@ the web service starts.
 The existing PostgreSQL volumes persist tasks across web container restarts.
 
 The app uses the restricted `webapp` login, its own `webapp_password` secret,
-and HAProxy's primary endpoint for every request, so new connections follow primary changes. During database outages it
+and the RW PgBouncer endpoint (`pgbouncer-1:6432`) for requests. PgBouncer routes
+backend connections through HAProxy to the current primary. During database outages it
 returns HTTP 503. If a save is interrupted, check the list before submitting again.
 Unauthenticated visitors are redirected to `/login`, which links to `/register`.
 Register with an email address and a 12–128 character password. Email syntax is
@@ -422,9 +423,9 @@ remaining remediation priorities.
 
 ### Web application database permissions and backups
 
-`make secrets` generates `secrets/webapp_password.txt`. Only `web-init` receives
-both administrator and application credentials; `web` receives only the application
-credential. The `webapp` role has SELECT, INSERT, UPDATE, and DELETE on public
+`make secrets` generates `secrets/webapp_password.txt`. `web-init` receives administrator and application credentials for setup; the RW
+pooler receives both for client/backend authentication. The `web` service receives
+only its application credential. The `webapp` role has SELECT, INSERT, UPDATE, and DELETE on public
 tables in `todo`, plus schema USAGE, database CONNECT, and sequence USAGE.
 It cannot create schemas, permanent or temporary tables, alter/drop existing
 tables, or truncate them. Objects remain owned by `postgres`. Default grants cover
@@ -569,3 +570,25 @@ See the Patroni section above for its authenticated reload test, and
 [etcd operations](docs/ETCD-SECURITY.md) for peer-certificate verification and
 root administration. These are targeted checks rather than a penetration test or
 dependency vulnerability scan.
+
+### Web application connection pooling
+
+Runtime requests follow `web → pgbouncer-1:6432 → haproxy:5432 → PostgreSQL primary`
+using the restricted `webapp` role and transaction pooling. Only the RW pooler
+receives `webapp_password`; its generated authentication file remains private.
+`webapp` is not a PgBouncer administrator. The RO pooler's users are unchanged.
+
+`web-init` continues using administrator credentials directly through HAProxy for
+schema changes and grants. It sets a five-second `statement_timeout` for `webapp`
+in `todo`, so new pooled PostgreSQL sessions inherit the timeout. The application
+does not send PostgreSQL's `options` startup parameter, which this PgBouncer
+configuration does not accept. After changing role defaults, recycle existing
+pooler server connections for those defaults to take effect.
+
+Verify the runtime pooler path and retained role restrictions:
+
+```bash
+docker compose exec -T web python3 < test/security/pgbouncer_rw.py
+docker compose exec -T web python3 < web/tests/permissions.py
+docker compose exec -T -e APP_TEST_URL=http://nginx:8080 web python3 < web/tests/smoke.py
+```

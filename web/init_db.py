@@ -31,6 +31,7 @@ def initialize():
                 cursor.execute('''
                     REVOKE CREATE, TEMPORARY ON DATABASE todo FROM PUBLIC, webapp;
                     GRANT CONNECT ON DATABASE todo TO webapp;
+                    ALTER ROLE webapp IN DATABASE todo SET statement_timeout = '5s';
                     REVOKE CREATE ON SCHEMA public FROM PUBLIC, webapp;
                     GRANT USAGE ON SCHEMA public TO webapp;
                     REVOKE ALL ON ALL TABLES IN SCHEMA public FROM webapp;
